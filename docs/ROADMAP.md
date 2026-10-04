@@ -48,7 +48,7 @@ Q12 脆弱性管理を行っていますか → はい
 各回は，同じ順で進める．
 
 1. 要求を読む．その回のコントロールを，どの規格がなぜ求めるかを確かめる．
-2. 運用項目を書く．`ops/items.yaml`に項目を足し，必要なら`ops/standards.yaml`に基準値を足す．
+2. 運用項目を書く．`ops/items.yaml`に項目を足し，必要なら`ops/standards.yaml`に基準値を足す．第8回からは，その項目がログで答える問いも`records`に書き，`ops/logs.yaml`を更新する．
 3. テストを書く．だめな入力で仕組みが失敗し，正しい入力で通ることを確かめるテストを先に書き，失敗することを見る．
 4. 仕組みを作る．miseのタスクとCIのジョブを作り，テストを通す．
 5. 証跡を残す．仕組みの結果を，決めた場所に保管する．
@@ -66,7 +66,7 @@ Q12 脆弱性管理を行っていますか → はい
 | --- | --- | --- | --- |
 | 単体テスト | アプリと`tools/ops/`のスクリプトの振る舞い | 各パッケージ | `test` |
 | ゲートのテスト | だめな入力のfixtureでゲートが失敗し，正しい入力で通ること | `tests/gates/` | `test:gates` |
-| 運用テスト | アラートのルール，監査ログの出力，リストアの結果など，運用の仕組みが期待どおり動くこと | `tests/ops/` | `test:ops` |
+| 運用テスト | アラートのルール，ログの出力，リストアの結果など，運用の仕組みが期待どおり動くこと | `tests/ops/` | `test:ops` |
 
 ゲートのテストと運用テストは，ゲートや仕組みを作る前に書く．
 
@@ -82,7 +82,7 @@ Q12 脆弱性管理を行っていますか → はい
 | 5 | コンテナとIaCの設定検査 | イメージの検査，設定の誤りの検出 |
 | 6 | ワークフローと成果物の完全性 | ハッシュ固定，cosign，SLSA provenance，OIDC |
 | 7 | 監視とアラート | Prometheus，Alertmanager，Grafana，promtool |
-| 8 | 監査ログ | 構造化ログ，CloudWatch Logs，保管期間 |
+| 8 | ログ設計 | 運用からのログの導出，構造化ログ，監査ログ，CloudWatch Logs |
 | 9 | バックアップとリストア | pg_dump，RPO，リストアの訓練，定期ジョブ |
 | 10 | 更新と定期的な再検査 | Renovate，SBOMの再検査，EOL |
 | 11 | 権限の管理 | 最小権限，棚卸し，ローテーション |
@@ -222,21 +222,34 @@ Q12 脆弱性管理を行っていますか → はい
 - 既存のテストへの影響：`ops:verify`が，運用項目の仕組みとしてアラートのルールも突き合わせるようになる．
 - 学習者が行う道具の操作：Grafanaでダッシュボードを確かめる．
 
-## 第8回 監査ログ
+## 第8回 ログ設計
 
-- 要求：誰がいつ何をしたかを記録し，決めた期間だけ保管する(ISO/IEC 27001 A.8.15，SOC 2 CC7.2)．
-- 仕込む問題：ログインと権限の変更が，どこにも記録されない．
-- 使用例：APIが監査イベントを構造化ログとしてCloudWatch Logsに送る．保管期間は基準値から設定される．
+- 要求：運用で答えるべき問い(誰がいつ何をしたか，障害の原因はどのリクエストか，不正な操作はないか)の答えを，必要な期間だけ残す．
+  根拠はISO/IEC 27001 A.8.15，A.8.16とSOC 2 CC7.2である．
+- 仕込む問題：APIのログは形式の決まらないテキストで，リクエストを追えない．ログインと権限の変更が記録されない．
+- 設計の進め方：ログの構造は，運用から次の順に導く．
+  1. 運用項目ごとに，ログで答える問いを`records`に書く．誰が，何を，いつまでに知りたいかを書く．
+     例えば`service-monitoring`は「アラートの原因になったリクエストを，発生から1時間以内に特定する」，`audit-logging`は「権限を変えた人と時刻を，1年後にも示す」である．
+  2. 問いをまとめて，ログの種類(アプリログ，監査ログ)を分ける．種類ごとに，問いの答えに要る項目，保管期間，閲覧できる人，記録してはならない項目を決める．
+  3. 保管期間は，その種類を使う運用のうち最も長いものに合わせ，基準値に書く．
+  4. 実装と基盤は，決めた種類と項目に従う．
+- 使用例：APIがJSONの構造化ログを出し，すべての行にリクエストIDが付く．ログインと権限の変更は，監査ログとして別のロググループに送られる．
+  `mise run ops:records`で，運用項目とログの対応表を生成する．
 - 追加するもの：
-  - `ops/standards.yaml`：`audit_log.retention_days`と，記録するイベントの一覧．
-  - `ops/items.yaml`：`audit-logging`．
-  - `apps/api`：監査イベントの出力．
-  - `infra/logging.tf`：ロググループと保管期間．
-- 運用テスト：APIでログインして権限を変え，そのイベントをCloudWatch Logsで検索できることを確かめる．
-- 証跡：ロググループの設定と，監査ログの検索結果．
-- 設計書の更新：運用方針に，監査ログを閲覧できる人を書く．
-- 既存のテストへの影響：APIの単体テストに，監査イベントの出力を確かめるテストが加わる．
-- 学習者が行う道具の操作：CloudWatch Logsで監査ログを検索する．
+  - `ops/items.yaml`：既存の運用項目に`records`を書き足す．`log-design`と`audit-logging`を足す．
+  - `ops/logs.yaml`：ログの種類ごとの項目，保管期間，閲覧できる人，記録してはならない項目．
+  - `ops/standards.yaml`：`logs.retention_days`(種類ごと)．
+  - `ops/schema/`：`logs.yaml`のスキーマ．ログの各行を検証するJSON Schemaは`logs.yaml`から生成する．
+  - `apps/api`：構造化ログ，リクエストID，監査イベント．
+  - `infra/logging.tf`：種類ごとのロググループ．保管期間は`ops/standards.yaml`から読む．
+  - `ops:verify`：`records`が参照するログの種類と項目が`ops/logs.yaml`にあることを確かめる．
+- リファクタリング：APIのログ出力を，`ops/logs.yaml`のとおりの構造化ログに置き換える．
+- ゲートのテスト：`ops/logs.yaml`にない項目を参照する`records`で，`ops:verify`が失敗する．
+- 運用テスト：APIでログインして権限を変え，出たログが生成したJSON Schemaに合うこと，パスワードとトークンを含まないこと，監査ログのロググループで検索できることを確かめる．
+- 証跡：ロググループの設定と，運用項目とログの対応表．
+- 設計書の更新：運用方針に，ログの種類ごとに閲覧できる人を書く．手順書のアラートへの対応に，リクエストIDでログを追う手順を足す．
+- 既存のテストへの影響：APIの単体テストに，ログの出力を確かめるテストが加わる．
+- 学習者が行う道具の操作：CloudWatch Logsで，リクエストIDと監査イベントを検索する．
 
 ## 第9回 バックアップとリストア
 
@@ -245,7 +258,7 @@ Q12 脆弱性管理を行っていますか → はい
 - 使用例：定期ジョブが`pg_dump`の結果をS3に保管する．`mise run ops:restore-test`が新しいデータベースに戻し，データを検証する．
 - 追加するもの：
   - `ops/standards.yaml`：`backup.interval_hours`(RPO)と`backup.retention_days`．
-  - `ops/items.yaml`：`backup`と`restore-test`．
+  - `ops/items.yaml`：`backup`と`restore-test`．`records`に，バックアップとリストアの訓練の成否を，月次報告で示せることを書く．
   - `.github/workflows/backup.yml`：`schedule`で動くバックアップとリストアの訓練．
 - 運用テスト：バックアップから戻したデータベースの行数と内容が，元と一致することを確かめる．
 - 証跡：バックアップのファイルと，リストアの訓練の結果をS3に保管する．
@@ -279,7 +292,7 @@ Q12 脆弱性管理を行っていますか → はい
   `mise run ops:rotate-db-password`がデータベースのパスワードを交換する．
 - 追加するもの：
   - `ops/standards.yaml`：`access.review_interval_days`と`credentials.max_age_days`．
-  - `ops/items.yaml`：`least-privilege`，`access-review`，`credential-rotation`．
+  - `ops/items.yaml`：`least-privilege`，`access-review`，`credential-rotation`．`records`に，棚卸しの期間の権限の変更を，監査ログとCloudTrailから示せることを書く．
   - `infra/`：GitHub Actions向けのOIDCの信頼ポリシー(対象のリポジトリとブランチを絞る)．
 - ゲートのテスト：すべての操作を許すポリシーと，対象を絞らない信頼ポリシーのfixtureで失敗する．
 - 証跡：棚卸しの報告(IAMの認証情報レポート，CloudTrailの操作記録，GitHubのメンバー一覧)をS3に保管する．
@@ -296,7 +309,7 @@ Q12 脆弱性管理を行っていますか → はい
 - 使用例：`mise run gate:sla`が，期限を過ぎた未対応の脆弱性を検出する．期限を過ぎるとAlertmanagerが上位者に通知する．影響のない脆弱性は，例外の一覧からOpenVEXの文書として出力される．
 - 追加するもの：
   - `ops/standards.yaml`：`vulnerability.sla_days`(重大度ごとの日数)．
-  - `ops/items.yaml`：`vulnerability-triage`と`escalation`．
+  - `ops/items.yaml`：`vulnerability-triage`と`escalation`．`records`に，検出から対応までの日数と，エスカレーションした相手と時刻を示せることを書く．
   - `ops/exceptions.yaml`：例外に，VEXの状態(`not_affected`など)と根拠を足す．
   - `mise run gate:sla`：初めて検出された日を記録し，基準値と比べる．
 - リファクタリング：第2回の，例外の一覧からTrivyの除外設定を作る処理を，OpenVEXの文書を作る処理に置き換える．
@@ -331,7 +344,7 @@ Q12 脆弱性管理を行っていますか → はい
 - 仕込む問題：なし．これまでの仕組みと証跡をまとめる．
 - 使用例：「完成したときの姿」のとおり，`mise run ops:report`で月次報告を，`mise run ops:checksheet`でチェックシートの回答の下書きを作る．
 - 追加するもの：
-  - `ops/items.yaml`：`monthly-report`と`checksheet-response`．各運用項目の要求に，チェックシートの質問を対応づける．
+  - `ops/items.yaml`：`monthly-report`と`checksheet-response`．各運用項目の要求に，チェックシートの質問を対応づける．月次報告は，各運用項目の`records`が指すログと証跡から作る．
   - `tools/ops/report.ts`と`tools/ops/checksheet.ts`．
   - `.github/workflows/scorecard.yml`：OpenSSF Scorecard．
   - `checksheets/sample.yaml`：講座で用意するチェックシートの例．
