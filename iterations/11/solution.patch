@@ -115,33 +115,39 @@ index 5ab815e..6376eca 100644
    # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
    evidence:
 diff --git a/app/infra/database.tf b/app/infra/database.tf
-index 48ac1bb..58cc142 100644
+index 48ac1bb..4e97835 100644
 --- a/app/infra/database.tf
 +++ b/app/infra/database.tf
-@@ -7,9 +7,20 @@ resource "aws_secretsmanager_secret" "db" {
+@@ -7,9 +7,25 @@ resource "aws_secretsmanager_secret" "db" {
    name = "app/db-password"
  }
  
-+# 接続先と認証情報をまとめて持つ．パスワードは ops:rotate-db-password で交換するので，
-+# 作った後の値の違いはOpenTofuの差分から外す．
- resource "aws_secretsmanager_secret_version" "db" {
+-resource "aws_secretsmanager_secret_version" "db" {
 -  secret_id     = aws_secretsmanager_secret.db.id
 -  secret_string = random_password.db.result
-+  secret_id = aws_secretsmanager_secret.db.id
-+  secret_string = jsonencode({
-+    username = aws_db_instance.app.username
-+    password = random_password.db.result
-+    host     = aws_db_instance.app.address
-+    port     = aws_db_instance.app.port
-+    dbname   = aws_db_instance.app.db_name
-+  })
-+  lifecycle {
-+    ignore_changes = [secret_string]
++# 接続先と認証情報をまとめて持つ．パスワードは ops:rotate-db-password が交換し，新しい版を足す．
++# OpenTofuは作るときに1回だけ値を書き，その後は値を管理しない．
++# (aws_secretsmanager_secret_version で持つと，交換で最初の版が消えたときに作り直し，最初のパスワードに戻してしまう)
++resource "terraform_data" "db_secret_initial" {
++  triggers_replace = [aws_secretsmanager_secret.db.arn, aws_db_instance.app.id]
++
++  provisioner "local-exec" {
++    command = "aws secretsmanager put-secret-value --secret-id \"$SECRET_ID\" --secret-string \"$SECRET_STRING\" > /dev/null"
++    environment = {
++      SECRET_ID = aws_secretsmanager_secret.db.arn
++      SECRET_STRING = jsonencode({
++        username = aws_db_instance.app.username
++        password = random_password.db.result
++        host     = aws_db_instance.app.address
++        port     = aws_db_instance.app.port
++        dbname   = aws_db_instance.app.db_name
++      })
++    }
 +  }
  }
  
  resource "aws_db_instance" "app" {
-@@ -26,6 +37,7 @@ resource "aws_db_instance" "app" {
+@@ -26,6 +42,7 @@ resource "aws_db_instance" "app" {
  
    lifecycle {
      # MiniStackは指定しない値にallocated_storageと同じ値を返すので，差分から外す．

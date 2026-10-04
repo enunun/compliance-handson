@@ -44,7 +44,16 @@
 
 ## 次にやること
 
-第13回(組織への展開)から始める．作業用のリポジトリの最新のタグは`sol12`である．
+第13回(組織への展開)を作っている．作業用のリポジトリの最新のタグは`sol12`である．
+
+第13回の設計(決定)：
+
+- 仕込み：`infra/ecs.tf`(クラスタ`prod`，タスク定義，サービス`api`．台数0)，`tools/ops/deploy.ts`(`mise run deploy --image <参照>`がタスク定義の新しい版を作り`update-service`する)，運用テスト`tests/ops/deploy.test.ts`，`.github/workflows/deploy.yml`(手動で動かし，タグのイメージを署名を確かめずにデプロイする．OIDCで`github-deploy`のロールを引き受ける)．
+- 解答：`deploy.yml`はタグからダイジェストを得て，`release:verify`の後で`deploy`する．`deploy.ts`はダイジェストでない参照を拒む．
+  `policy/`のconftestのルール(Rego v1)：ワークフローは最上位に`permissions`を書く，`mise run deploy`の前に同じジョブで`mise run release:verify`を動かす，`actor: 人`の運用項目には手順書がある．`gate:policy`(`tools/gates/policy.ts`)が`../.github/workflows/*.yml`と`ops/items.yaml`を検査する．
+  リファクタリング：`ci.yml`のゲートのジョブを`gates.yml`(`workflow_call`，入力`working-directory`)へ移し，`ci.yml`は`uses: ./.github/workflows/gates.yml`で呼ぶ．`items.yaml`の仕組みの参照も`gates.yml`に替える．
+- `aws-actions/configure-aws-credentials`は v6.3.0(`e1253824e5c10ff9df46874f81ed3ec929e19cfd`)に固定する．
+- MiniStackのECSは，`register-task-definition`，`create-service`，`update-service`，`describe-services`が動くことを確かめた．
 
 第12回で決めたこと(後の回で使う)：
 

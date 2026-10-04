@@ -177,6 +177,8 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 - RDSは実際の`postgres:15-alpine`コンテナを起動する．スナップショットからの復元は，状態が`available`になってもコンテナを作らない．バックアップは`pg_dump`とS3で行う．
 - IAMのポリシーは既定では評価されない．AssumeRoleWithWebIdentityは，検証できないトークンでも認証情報を返す．権限は静的な検査で確かめる．
 - Secrets Managerのローテーションは設定できるが，実行されない(READMEによる)．
+- Secrets Managerは，`put-secret-value`を重ねると，`AWSCURRENT`と`AWSPREVIOUS`以外の版をすぐに消す(独自のラベルを付けても消える)．
+  `aws_secretsmanager_secret_version`で最初の値を持つと，消えた版をOpenTofuが作り直して値が戻るので，最初の値は`terraform_data`の`local-exec`で1回だけ書く．
 - RDSやECSのコンテナを起動するには，Python版では`ministack[full]`(`cryptography`を含む)と，Dockerのソケットが要る．
 - OpenTofu 1.13.1とAWSプロバイダ6系で，次を作成し，削除できる．
   S3(Object Lock，ライフサイクル)，RDS，ECS(Fargateのサービス)，IAMロール，

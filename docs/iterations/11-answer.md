@@ -105,8 +105,26 @@ MiniStackでは，`aws rds modify-db-instance`でパスワードを変えても�
 解答では，`ALTER ROLE`でデータベースのパスワードを変え，シークレットを更新した．
 実際のAWSでも，Secrets Managerのパスワードの交換はこの方式で行う．
 
-OpenTofuは，シークレットの値とデータベースのパスワードの違いを差分から外した．
-外さないと，次の`tofu apply`で交換したパスワードが元に戻る．
+OpenTofuは，データベースのパスワードの違いを差分から外した．
+シークレットの値は，`aws_secretsmanager_secret_version`ではなく，`terraform_data`の`local-exec`で作るときに1回だけ書く．
+
+```hcl
+resource "terraform_data" "db_secret_initial" {
+  triggers_replace = [aws_secretsmanager_secret.db.arn, aws_db_instance.app.id]
+
+  provisioner "local-exec" {
+    command = "aws secretsmanager put-secret-value --secret-id \"$SECRET_ID\" --secret-string \"$SECRET_STRING\" > /dev/null"
+    environment = {
+      SECRET_ID     = aws_secretsmanager_secret.db.arn
+      SECRET_STRING = jsonencode({ ... })
+    }
+  }
+}
+```
+
+`aws_secretsmanager_secret_version`で持つと，交換を重ねて最初の版が消えたときに，次の`tofu apply`が版を作り直す．
+すると，シークレットが最初のパスワードに戻り，データベースに接続できなくなる．
+MiniStackは古い版をすぐに消すので，2回交換すると起きる．
 
 ## 11-6 振り返り
 
