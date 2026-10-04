@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 一時的なコピーに，第0回から各回の仕込みと解答のパッチを順に当て，
 # 各回の解答で題材の検査(mise run check)が通ることを確かめる．
-# 使い方：scripts/verify-iterations.sh [最後の回の番号]
+# 使い方：scripts/verify-iterations.sh [最後の回の番号] [検査を始める回の番号]
+# 検査を始める回より前の回は，パッチを当てるだけで検査しない．
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
@@ -18,6 +19,7 @@ git -c user.name=verify -c user.email=verify@example.com commit -qm base
 mise trust -q . && mise trust -q app
 
 last=${1:-}
+first=${2:-0}
 for dir in iterations/*/; do
   n=$(basename "$dir")
   if [ -n "$last" ] && [ "$((10#$n))" -gt "$((10#$last))" ]; then
@@ -30,6 +32,8 @@ for dir in iterations/*/; do
   git apply --whitespace=nowarn "$dir/solution.patch"
   git add -A
   git -c user.name=verify -c user.email=verify@example.com commit -qm "iteration $n"
-  mise -C app run check
+  if [ "$((10#$n))" -ge "$((10#$first))" ]; then
+    mise -C app run check
+  fi
 done
-echo "すべての回の解答で検査が通った．"
+echo "検査したすべての回の解答で，検査が通った．"

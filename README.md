@@ -50,3 +50,4 @@ mise run iteration:solution 1
 | 3 | [SBOMとライセンス，証跡の保管](docs/iterations/03.md) | [解説](docs/iterations/03-answer.md) |
 | 4 | [SAST](docs/iterations/04.md) | [解説](docs/iterations/04-answer.md) |
 | 5 | [コンテナとIaCの設定検査](docs/iterations/05.md) | [解説](docs/iterations/05-answer.md) |
+| 6 | [ワークフローと成果物の完全性](docs/iterations/06.md) | [解説](docs/iterations/06-answer.md) |

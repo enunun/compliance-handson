@@ -216,17 +216,19 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第6回 ワークフローと成果物の完全性
 
 - 要求：CIで使う部品のすり替えを防ぐ．出荷したイメージが，このリポジトリのCIで作られたことを検証できるようにする(SLSA，NIST SSDF PS.2)．
-- 仕込む問題：ワークフローの`uses:`がタグで参照されている．
-- 使用例：`mise run gate:pinning`が，ハッシュで固定されていない`uses:`を検出する．CIはイメージをGHCRにpushし，署名とprovenanceを付ける．
+- 仕込む問題：第0回から，ワークフローの`uses:`をタグで参照している．この回では新たに仕込まない．
+- 使用例：`mise run gate:pinning`が，ハッシュで固定されていない`uses:`を検出する．
+  `v`で始まるタグをpushすると，`release.yml`がイメージをGHCRに置き，キーレスの署名とprovenanceを付けて検証する．
 - 追加するもの：
   - `ops/items.yaml`：`actions-pinning`と`artifact-signing`．
-  - `tools/ops/pinning.ts`と`mise run gate:pinning`．
-  - `.github/workflows/release.yml`：イメージのpush，cosignのキーレス署名，`actions/attest-build-provenance`．
-- ゲートのテスト：タグで参照したワークフローのfixtureで失敗し，ハッシュで固定すると通る．
-- 証跡：署名とprovenance．`gh attestation verify`の結果をS3に保管する．
-- 設計書の更新：手順書に，署名を検証する手順を書く．
+  - `tools/gates/pinning.ts`と`mise run gate:pinning`．
+  - `.github/workflows/release.yml`：イメージのpush，cosignでのキーレスの署名，`actions/attest-build-provenance`，検証．
+  - `tools/gates/verify-image.sh`と`mise run release:verify`：署名とprovenanceの検証．第13回のデプロイの前の検証でも使う．
+- ゲートのテスト：タグやブランチを参照するワークフローなら失敗し，ハッシュに固定した参照と同じリポジトリの中の参照だけなら通る．
+- 証跡：署名とprovenance．検証の結果(JSON)をartifactに残す．
+- 設計書の更新：手順書に，イメージの署名とprovenanceを確かめる手順を書く．
 - 既存のテストへの影響：なし．
-- 学習者が行う道具の操作：OIDCトークンはactでは発行されないので，この回はGitHubにpushして確かめる．
+- 学習者が行う道具の操作：OIDCのトークンはactでは発行されないので，この回はGitHubにタグをpushして確かめる．
 
 ## 第7回 監視とアラート
 
