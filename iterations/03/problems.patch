@@ -1,0 +1,89 @@
+diff --git a/app/apps/web/package.json b/app/apps/web/package.json
+index dd24b1d..8fc26d0 100644
+--- a/app/apps/web/package.json
++++ b/app/apps/web/package.json
+@@ -12,7 +12,8 @@
+     "@app/shared": "workspace:*",
+     "@hono/node-server": "^2.1.3",
+     "hono": "^4.13.12",
+-    "lodash": "4.18.1"
++    "lodash": "4.18.1",
++    "tinymce": "7.9.3"
+   },
+   "devDependencies": {
+     "@types/lodash": "^4.17.25",
+diff --git a/app/apps/web/src/app.tsx b/app/apps/web/src/app.tsx
+index 65fa099..a5ade63 100644
+--- a/app/apps/web/src/app.tsx
++++ b/app/apps/web/src/app.tsx
+@@ -1,6 +1,8 @@
+ import { type Note, noteInputSchema } from "@app/shared";
++import { serveStatic } from "@hono/node-server/serve-static";
+ import { Hono } from "hono";
+ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
++import { raw } from "hono/html";
+ import truncate from "lodash/truncate.js";
+ 
+ type Options = {
+@@ -16,6 +18,15 @@ const TOKEN_COOKIE = "token";
+ export function createApp({ apiUrl, fetch: fetchApi = fetch }: Options) {
+   const app = new Hono();
+ 
++  // メモの本文を書くリッチテキストエディタ(TinyMCE)の配布物を配る．
++  app.use(
++    "/assets/tinymce/*",
++    serveStatic({
++      root: "./node_modules/tinymce",
++      rewriteRequestPath: (path) => path.replace(/^\/assets\/tinymce/, ""),
++    }),
++  );
++
+   const callApi = (path: string, init: RequestInit = {}, token?: string) =>
+     fetchApi(`${apiUrl}${path}`, {
+       ...init,
+@@ -120,6 +131,12 @@ function NotesPage({ notes }: { notes: Note[] }) {
+         <textarea name="body" required />
+         <button type="submit">追加</button>
+       </form>
++      <script src="/assets/tinymce/tinymce.min.js" />
++      <script>
++        {raw(
++          'tinymce.init({ selector: "textarea[name=body]", license_key: "gpl" });',
++        )}
++      </script>
+       <ul>
+         {notes.map((note) => (
+           <li>{truncate(note.body, { length: 100 })}</li>
+diff --git a/app/pnpm-lock.yaml b/app/pnpm-lock.yaml
+index eddc5e2..513a6b2 100644
+--- a/app/pnpm-lock.yaml
++++ b/app/pnpm-lock.yaml
+@@ -47,6 +47,9 @@ importers:
+       lodash:
+         specifier: 4.18.1
+         version: 4.18.1
++      tinymce:
++        specifier: 7.9.3
++        version: 7.9.3
+     devDependencies:
+       '@types/lodash':
+         specifier: ^4.17.25
+@@ -736,6 +739,9 @@ packages:
+     resolution: {integrity: sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g==}
+     engines: {node: '>=12.0.0'}
+ 
++  tinymce@7.9.3:
++    resolution: {integrity: sha512-Mtm54U5YJ6Pyo/GaAx+JSHXTGEuxrg2AowVWCD9zy1eBolp5Ub7S1rTtsyQdxhPegfhLuR3VLiTKGw1tacv09g==}
++
+   tsx@4.23.15:
+     resolution: {integrity: sha512-Yiex1Ovn8z2xPpOWckIiysV1SSyRMY9BkLF++q0yKiDxCqRhosKfMg3janKkiLBwZ5c/YryloKwGZcrEmtwxKw==}
+     engines: {node: '>=18.0.0'}
+@@ -1283,6 +1289,8 @@ snapshots:
+       fdir: 6.5.0(picomatch@4.0.7)
+       picomatch: 4.0.7
+ 
++  tinymce@7.9.3: {}
++
+   tsx@4.23.15:
+     dependencies:
+       esbuild: 0.28.2

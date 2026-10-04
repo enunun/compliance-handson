@@ -224,6 +224,13 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
   古いpnpmで作ったロックファイルは，`pnpm clean --lockfile`の後に`pnpm install`で作り直す．
 - markdownlintは`**/*.md`を対象にするので，`.terraform/`の中のプロバイダのMarkdownを対象から外す．
 
+### 証跡の保管場所
+
+- 証跡を保管したバケットは，Object Lockのため保管期間の間は消せない．`mise run down`も失敗する．
+  環境を初期化するときは，MiniStackのデータのボリュームごと消す(Dev Containerなら`compose.yml`の`ministack-data`)．
+- OpenTofuの適用が途中で失敗すると，バケットだけが残り，次の適用で作り直そうとして失敗することがある．同じく環境を初期化する．
+- GitHubのランナーやこの検証環境では`000000000000.localhost`が名前解決できない．CIのジョブでは`/etc/hosts`に足す．
+
 ### mise
 
 - `mise.lock`の形式はmiseの版で変わる．Dev Containerのベースイメージのmiseは，`mise.lock`を作った版にそろえる．

@@ -154,19 +154,24 @@ Q12 脆弱性管理を行っていますか → はい
 - 要求：出荷するソフトウェアの構成部品を一覧にして渡せるようにする．
   ライセンスの義務を守る．
   証跡は消せない形で決めた期間だけ保管する(経済産業省のSBOM導入の手引，NIST SSDF PS.3)．
-- 仕込む問題：`apps/web`の依存関係に，許可していないライセンスのパッケージがある．
-- 使用例：`mise run sbom`がコンポーネントごとにCycloneDXのSBOMを作る．`mise run gate:license`が許可されたライセンスかを検査する．CIは証跡をMiniStackのS3に保管する．
+- 仕込む問題：`apps/web`に，GPL-2.0-or-laterのリッチテキストエディタ(TinyMCE 7)が足されている．
+- 使用例：`mise run sbom`がコンポーネントごとにCycloneDXのSBOMを作る．`mise run gate:license`が許可されたライセンスかを検査する．
+  CIの`evidence`ジョブが，ゲートのジョブの証跡を集めて証跡の保管場所(S3)に送る．
 - 追加するもの：
   - `ops/standards.yaml`：`license.allowed`と`evidence.retention_days`．
   - `ops/items.yaml`：`sbom`，`license-policy`，`evidence-retention`．
+  - `tools/gates/license.ts`と`mise run gate:license`．
   - `infra/evidence.tf`：Object LockとライフサイクルつきのS3バケット．保管期間は`ops/standards.yaml`から読む．
-  - `mise run evidence:upload`：証跡をS3に保管する．
-  - CIのジョブにMiniStackのサービスコンテナを足す．
-- ゲートのテスト：許可していないライセンスを含むSBOMで失敗する．運用テストで，保管した証跡を消そうとすると拒否されることを確かめる．
+  - `mise run evidence:upload`：証跡を日付とコミットごとにS3へ送る．
+  - `mise run test:ops`：運用テストを実行する．
+  - `.github/workflows/ci.yml`：`sbom`ジョブと，MiniStackをサービスコンテナで動かす`evidence`ジョブ．
+- ゲートのテスト：許可していないライセンスや，ライセンスが分からない部品を含むSBOMで失敗する．
+- 運用テスト：証跡の保管場所が基準値の日数だけ消せない設定であること，保管した証跡を版を指定しても消せないことを確かめる．
 - 証跡：SBOM(CycloneDX)をS3に保管する．以降の回の証跡もここに保管する．
 - 設計書の更新：運用方針に証跡の保管場所と期間を書く．
-- 既存のテストへの影響：第1回と第2回の証跡の保存先が，artifactからS3に変わる．
-- 学習者が行う道具の操作：`tofu plan`と`tofu apply`で変更を確かめる．
+- 既存のテストへの影響：`ops:verify`のfixtureの基準値に，ライセンスと証跡の基準を足す．
+  第1回と第2回のジョブは，`out/evidence/`全体をartifactとして残す形に変わる．
+- 学習者が行う道具の操作：`tofu plan`と`tofu apply`で変更を確かめる．AWS CLIで，保管した証跡を一覧する．
 
 ## 第4回 SAST
 
