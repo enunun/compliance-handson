@@ -7,8 +7,7 @@
 
 | 回 | 状況 |
 | --- | --- |
-| 0〜7 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
-| 8 | 作成中．下の「第8回の残り」を参照． |
+| 0〜8 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
 | 9〜14 | 未着手． |
 
 ## 作り方
@@ -37,27 +36,12 @@
 - Docker Hubの取得回数の制限を避けるため，`/etc/docker/daemon.json`にミラー(`mirror.gcr.io`)を設定した．
 - イメージのビルドでは，ホストのGoのモジュールのキャッシュを`python3 -m http.server 8099`で配り，`DOCKER_BUILD_ARGS="--network host --build-arg GOPROXY=http://127.0.0.1:8099"`を渡す．
 - `000000000000.localhost`を`/etc/hosts`に足した．MiniStackは`docker run --network chnet --network-alias 000000000000.ministack -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock`で起動する．
+- AWS CLI(v1)は`AWS_REGION`を読まないので，`.devcontainer/aws-config`にリージョンを書いた．
 - AWSの環境変数：`AWS_ENDPOINT_URL=http://localhost:4566`，`AWS_ACCESS_KEY_ID=test`，`AWS_SECRET_ACCESS_KEY=test`，`AWS_REGION=ap-northeast-1`，`AWS_CONFIG_FILE=.devcontainer/aws-config`．
 
-## 第8回の残り
+## 次にやること
 
-作業用のリポジトリには，仕込み(`ex8`：場当たりなテキストのログ．ログインの失敗でパスワードを書く)と，解答の大部分がある．
-
-できているもの：
-
-- 設計書：`ops/logs.yaml`とそのスキーマ，運用項目の`records`，基準値の`logs.retention_days`，生成する`ops/records.md`．
-- `tools/ops/logs.ts`(`checkRecords`，`logLineSchema`，`renderRecords`)と，`ops:verify`と`ops:render`への組み込み．
-- API：`log/slog`の構造化ログ，リクエストID，監査ログ，CloudWatch Logsへ送るハンドラ(`internal/logging`)．Goの単体テストは通る．
-- `infra/logging.tf`(種類ごとのロググループ)と`infra/locals.tf`．
-- ゲートのテスト：問いがログの設計にない項目を使う場合と，保管期間が短い場合．
-- 運用テスト`tests/ops/logs.test.ts`：本物のAPIを動かし，ロググループの各行をログの設計から作ったJSON Schemaで検証する．
-
-残り：
-
-1. 運用テストが「You must specify a region」で失敗する．AWS CLI v1は`AWS_REGION`を読まないので，`.devcontainer/aws-config`の`[default]`に`region = ap-northeast-1`を足す(教材の本体の変更)．
-2. 運用テストを通す．CIの`evidence`ジョブのMiniStackに`/var/run/docker.sock`をマウントし，RDSのコンテナを動かせるようにする．
-3. 手順書`api-high-error-rate.md`に，リクエストIDでログを追う手順を足す．`ops/policy.md`に，ログの種類ごとの閲覧できる人を書く．
-4. `mise run check`を通し，パッチを書き出し，ロードマップ，演習の手順，解説を書く．
+第9回(バックアップとリストア)から始める．作業用のリポジトリの最新のタグは`sol8`である．
 
 ## 第9回から第14回でやること
 

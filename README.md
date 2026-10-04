@@ -52,3 +52,4 @@ mise run iteration:solution 1
 | 5 | [コンテナとIaCの設定検査](docs/iterations/05.md) | [解説](docs/iterations/05-answer.md) |
 | 6 | [ワークフローと成果物の完全性](docs/iterations/06.md) | [解説](docs/iterations/06-answer.md) |
 | 7 | [監視とアラート](docs/iterations/07.md) | [解説](docs/iterations/07-answer.md) |
+| 8 | [ログ設計](docs/iterations/08.md) | [解説](docs/iterations/08-answer.md) |

@@ -191,6 +191,7 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
   MiniStackは自分のネットワークを検出し，RDSやECSのコンテナもそこへつなぐので，作業用のコンテナから届く．
 - AWSのSDK，CLI，OpenTofuのAWSプロバイダは，`AWS_ENDPOINT_URL`だけでMiniStackに向く．
   プロバイダに`endpoints`は書かない．
+- AWS CLI(v1)は`AWS_REGION`を読まない．リージョンは`.devcontainer/aws-config`に書く．
 - S3はパス形式でアクセスする．OpenTofuではプロバイダに`s3_use_path_style = true`を書き，AWS CLIでは`.devcontainer/aws-config`で設定する．
 - S3 Controlは`000000000000.ministack`のように，アカウントIDを付けたホスト名で接続する．
   Composeで，MiniStackにこのホスト名をネットワークのエイリアスとして付ける．

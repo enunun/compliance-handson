@@ -1,4 +1,6 @@
 # MiniStackはバケット名をホスト名に含める形式に対応しないので，パス形式でS3にアクセスする．
 [default]
+# AWS CLI(v1)は AWS_REGION を読まないので，ここでリージョンを決める．
+region = ap-northeast-1
 s3 =
     addressing_style = path
