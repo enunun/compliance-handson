@@ -55,3 +55,4 @@ mise run iteration:solution 1
 | 8 | [ログ設計](docs/iterations/08.md) | [解説](docs/iterations/08-answer.md) |
 | 9 | [バックアップとリストア](docs/iterations/09.md) | [解説](docs/iterations/09-answer.md) |
 | 10 | [更新と定期的な再検査](docs/iterations/10.md) | [解説](docs/iterations/10-answer.md) |
+| 11 | [権限の管理](docs/iterations/11.md) | [解説](docs/iterations/11-answer.md) |

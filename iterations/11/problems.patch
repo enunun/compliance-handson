@@ -1,0 +1,85 @@
+diff --git a/app/infra/iam.tf b/app/infra/iam.tf
+new file mode 100644
+index 0000000..b627384
+--- /dev/null
++++ b/app/infra/iam.tf
+@@ -0,0 +1,66 @@
++# APIのタスク(コンテナ)が使うロール．
++resource "aws_iam_role" "task" {
++  name = "api-task"
++  assume_role_policy = jsonencode({
++    Version = "2012-10-17"
++    Statement = [{
++      Effect    = "Allow"
++      Principal = { Service = "ecs-tasks.amazonaws.com" }
++      Action    = "sts:AssumeRole"
++    }]
++  })
++}
++
++resource "aws_iam_role_policy" "task" {
++  role = aws_iam_role.task.id
++  policy = jsonencode({
++    Version = "2012-10-17"
++    Statement = [{
++      Effect   = "Allow"
++      Action   = "*"
++      Resource = "*"
++    }]
++  })
++}
++
++# CIからデプロイするための利用者．
++resource "aws_iam_user" "deployer" {
++  name = "ci-deployer"
++}
++
++resource "aws_iam_access_key" "deployer" {
++  user = aws_iam_user.deployer.name
++}
++
++resource "aws_iam_user_policy" "deployer" {
++  user = aws_iam_user.deployer.name
++  policy = jsonencode({
++    Version = "2012-10-17"
++    Statement = [{
++      Effect   = "Allow"
++      Action   = ["s3:*", "ecs:*"]
++      Resource = "*"
++    }]
++  })
++}
++
++# GitHub ActionsからOIDCで引き受けるロール．
++resource "aws_iam_openid_connect_provider" "github" {
++  url            = "https://token.actions.githubusercontent.com"
++  client_id_list = ["sts.amazonaws.com"]
++}
++
++resource "aws_iam_role" "github_deploy" {
++  name = "github-deploy"
++  assume_role_policy = jsonencode({
++    Version = "2012-10-17"
++    Statement = [{
++      Effect    = "Allow"
++      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
++      Action    = "sts:AssumeRoleWithWebIdentity"
++      Condition = {
++        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:*" }
++      }
++    }]
++  })
++}
+diff --git a/app/infra/outputs.tf b/app/infra/outputs.tf
+index 7e7ddf7..c73404a 100644
+--- a/app/infra/outputs.tf
++++ b/app/infra/outputs.tf
+@@ -9,3 +9,8 @@ output "evidence_bucket" {
+ output "backup_bucket" {
+   value = aws_s3_bucket.backups.bucket
+ }
++
++output "deployer_secret_access_key" {
++  value     = aws_iam_access_key.deployer.secret
++  sensitive = true
++}

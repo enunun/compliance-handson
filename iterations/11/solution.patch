@@ -1,0 +1,1325 @@
+diff --git a/.github/CODEOWNERS b/.github/CODEOWNERS
+index cc7970f..c8c0fd9 100644
+--- a/.github/CODEOWNERS
++++ b/.github/CODEOWNERS
+@@ -4,3 +4,4 @@
+ /app/ops/standards.yaml @security-lead
+ /app/ops/exceptions.yaml @security-lead
+ /.github/CODEOWNERS @security-lead
++/app/infra/policies/ @security-lead
+diff --git a/.github/workflows/access.yml b/.github/workflows/access.yml
+new file mode 100644
+index 0000000..e1f58fa
+--- /dev/null
++++ b/.github/workflows/access.yml
+@@ -0,0 +1,80 @@
++name: access
++
++# 権限の棚卸しの報告と，データベースのパスワードの交換．
++# standards.yaml の access.review_interval_days(30日)と credentials.max_age_days(90日)より短い間隔で動かす．
++# この題材では，環境はジョブの中で起動したMiniStackの上に作る．
++on:
++  schedule:
++    - cron: "43 0 1 * *"
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++jobs:
++  access-review:
++    runs-on: ubuntu-latest
++    services:
++      ministack:
++        image: ministackorg/ministack:1.5.21@sha256:7a30ff0670578e10528b5a9a21e795ef494f96bbc35691c9b0742ea35de71808
++        ports:
++          - 4566:4566
++        env:
++          CLOUDTRAIL_RECORDING: "1"
++        volumes:
++          - /var/run/docker.sock:/var/run/docker.sock
++        options: --workdir /opt/ministack
++    env:
++      AWS_ENDPOINT_URL: http://localhost:4566
++      AWS_ACCESS_KEY_ID: test
++      AWS_SECRET_ACCESS_KEY: test
++      AWS_REGION: ap-northeast-1
++      AWS_CONFIG_FILE: ${{ github.workspace }}/.devcontainer/aws-config
++      LOG_GROUP_PREFIX: /app/
++      GH_TOKEN: ${{ github.token }}
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - run: echo "127.0.0.1 000000000000.localhost" | sudo tee -a /etc/hosts
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run up
++      - run: mise run ops:access-review
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-access-review
++          path: app/out/evidence/
++
++  rotate-db-password:
++    runs-on: ubuntu-latest
++    services:
++      ministack:
++        image: ministackorg/ministack:1.5.21@sha256:7a30ff0670578e10528b5a9a21e795ef494f96bbc35691c9b0742ea35de71808
++        ports:
++          - 4566:4566
++        volumes:
++          - /var/run/docker.sock:/var/run/docker.sock
++        options: --workdir /opt/ministack
++    env:
++      AWS_ENDPOINT_URL: http://localhost:4566
++      AWS_ACCESS_KEY_ID: test
++      AWS_SECRET_ACCESS_KEY: test
++      AWS_REGION: ap-northeast-1
++      AWS_CONFIG_FILE: ${{ github.workspace }}/.devcontainer/aws-config
++      LOG_GROUP_PREFIX: /app/
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - run: echo "127.0.0.1 000000000000.localhost" | sudo tee -a /etc/hosts
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run up
++      - run: mise run ops:rotate-db-password
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-rotate-db-password
++          path: app/out/evidence/
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 5ab815e..6376eca 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -142,6 +142,16 @@ jobs:
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:eol
+ 
++  iam:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:iam
++
+   # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
+   # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
+   evidence:
+diff --git a/app/infra/database.tf b/app/infra/database.tf
+index 48ac1bb..58cc142 100644
+--- a/app/infra/database.tf
++++ b/app/infra/database.tf
+@@ -7,9 +7,20 @@ resource "aws_secretsmanager_secret" "db" {
+   name = "app/db-password"
+ }
+ 
++# 接続先と認証情報をまとめて持つ．パスワードは ops:rotate-db-password で交換するので，
++# 作った後の値の違いはOpenTofuの差分から外す．
+ resource "aws_secretsmanager_secret_version" "db" {
+-  secret_id     = aws_secretsmanager_secret.db.id
+-  secret_string = random_password.db.result
++  secret_id = aws_secretsmanager_secret.db.id
++  secret_string = jsonencode({
++    username = aws_db_instance.app.username
++    password = random_password.db.result
++    host     = aws_db_instance.app.address
++    port     = aws_db_instance.app.port
++    dbname   = aws_db_instance.app.db_name
++  })
++  lifecycle {
++    ignore_changes = [secret_string]
++  }
+ }
+ 
+ resource "aws_db_instance" "app" {
+@@ -26,6 +37,7 @@ resource "aws_db_instance" "app" {
+ 
+   lifecycle {
+     # MiniStackは指定しない値にallocated_storageと同じ値を返すので，差分から外す．
+-    ignore_changes = [max_allocated_storage]
++    # パスワードは ops:rotate-db-password で交換するので，差分から外す．
++    ignore_changes = [max_allocated_storage, password]
+   }
+ }
+diff --git a/app/infra/iam.tf b/app/infra/iam.tf
+index b627384..cf22ac7 100644
+--- a/app/infra/iam.tf
++++ b/app/infra/iam.tf
+@@ -1,50 +1,37 @@
+-# APIのタスク(コンテナ)が使うロール．
+-resource "aws_iam_role" "task" {
+-  name = "api-task"
+-  assume_role_policy = jsonencode({
+-    Version = "2012-10-17"
+-    Statement = [{
+-      Effect    = "Allow"
+-      Principal = { Service = "ecs-tasks.amazonaws.com" }
+-      Action    = "sts:AssumeRole"
+-    }]
+-  })
+-}
++# ポリシーは policies/ のJSONに書き，gate:iam で検査する．
+ 
+-resource "aws_iam_role_policy" "task" {
+-  role = aws_iam_role.task.id
+-  policy = jsonencode({
+-    Version = "2012-10-17"
+-    Statement = [{
+-      Effect   = "Allow"
+-      Action   = "*"
+-      Resource = "*"
+-    }]
+-  })
++variable "github_repository" {
++  description = "GitHub ActionsからOIDCで引き受けるのを許すリポジトリ(owner/repo)．自分のリポジトリに替える．"
++  type        = string
++  default     = "example/compliance-handson"
++
++  validation {
++    condition     = can(regex("^[^*/]+/[^*/]+$", var.github_repository))
++    error_message = "github_repository は owner/repo の形で書き，ワイルドカード(*)を使わない．"
++  }
+ }
+ 
+-# CIからデプロイするための利用者．
+-resource "aws_iam_user" "deployer" {
+-  name = "ci-deployer"
++locals {
++  account_id = "000000000000"
++  region     = "ap-northeast-1"
+ }
+ 
+-resource "aws_iam_access_key" "deployer" {
+-  user = aws_iam_user.deployer.name
++# APIのタスク(コンテナ)が使うロール．ログの書き込み，データベースのシークレットの読み出し，エクスポートの置き場所だけを許す．
++resource "aws_iam_role" "task" {
++  name               = "api-task"
++  assume_role_policy = file("${path.module}/policies/task-trust.json")
+ }
+ 
+-resource "aws_iam_user_policy" "deployer" {
+-  user = aws_iam_user.deployer.name
+-  policy = jsonencode({
+-    Version = "2012-10-17"
+-    Statement = [{
+-      Effect   = "Allow"
+-      Action   = ["s3:*", "ecs:*"]
+-      Resource = "*"
+-    }]
++resource "aws_iam_role_policy" "task" {
++  role = aws_iam_role.task.id
++  policy = templatefile("${path.module}/policies/task.json", {
++    log_group_arns     = join("\", \"", [for g in aws_cloudwatch_log_group.app : "${g.arn}:*"])
++    db_secret_arn      = aws_secretsmanager_secret.db.arn
++    exports_bucket_arn = aws_s3_bucket.exports.arn
+   })
+ }
+ 
+-# GitHub ActionsからOIDCで引き受けるロール．
++# GitHub ActionsからOIDCで引き受けるロール．長期のアクセスキーの代わりに，ジョブごとの一時的な認証情報を使う．
+ resource "aws_iam_openid_connect_provider" "github" {
+   url            = "https://token.actions.githubusercontent.com"
+   client_id_list = ["sts.amazonaws.com"]
+@@ -52,15 +39,18 @@ resource "aws_iam_openid_connect_provider" "github" {
+ 
+ resource "aws_iam_role" "github_deploy" {
+   name = "github-deploy"
+-  assume_role_policy = jsonencode({
+-    Version = "2012-10-17"
+-    Statement = [{
+-      Effect    = "Allow"
+-      Principal = { Federated = aws_iam_openid_connect_provider.github.arn }
+-      Action    = "sts:AssumeRoleWithWebIdentity"
+-      Condition = {
+-        StringLike = { "token.actions.githubusercontent.com:sub" = "repo:*" }
+-      }
+-    }]
++  assume_role_policy = templatefile("${path.module}/policies/github-deploy-trust.json", {
++    oidc_provider_arn = aws_iam_openid_connect_provider.github.arn
++    repository        = var.github_repository
++  })
++}
++
++resource "aws_iam_role_policy" "github_deploy" {
++  role = aws_iam_role.github_deploy.id
++  policy = templatefile("${path.module}/policies/github-deploy.json", {
++    evidence_bucket_arn    = aws_s3_bucket.evidence.arn
++    backups_bucket_arn     = aws_s3_bucket.backups.arn
++    ecs_cluster_arn        = "arn:aws:ecs:${local.region}:${local.account_id}:cluster/prod"
++    ecs_service_arn_prefix = "arn:aws:ecs:${local.region}:${local.account_id}:service/prod/"
+   })
+ }
+diff --git a/app/infra/outputs.tf b/app/infra/outputs.tf
+index c73404a..15ac67f 100644
+--- a/app/infra/outputs.tf
++++ b/app/infra/outputs.tf
+@@ -1,6 +1,6 @@
+-output "database_url" {
+-  value     = "postgres://${aws_db_instance.app.username}:${random_password.db.result}@${aws_db_instance.app.endpoint}/${aws_db_instance.app.db_name}"
+-  sensitive = true
++# データベースの接続先と認証情報は，このシークレットにだけある．パスワードを交換しても古くならない．
++output "db_secret_id" {
++  value = aws_secretsmanager_secret.db.name
+ }
+ output "evidence_bucket" {
+   value = aws_s3_bucket.evidence.bucket
+@@ -9,8 +9,3 @@ output "evidence_bucket" {
+ output "backup_bucket" {
+   value = aws_s3_bucket.backups.bucket
+ }
+-
+-output "deployer_secret_access_key" {
+-  value     = aws_iam_access_key.deployer.secret
+-  sensitive = true
+-}
+diff --git a/app/infra/policies/github-deploy-trust.json b/app/infra/policies/github-deploy-trust.json
+new file mode 100644
+index 0000000..9a4a448
+--- /dev/null
++++ b/app/infra/policies/github-deploy-trust.json
+@@ -0,0 +1,16 @@
++{
++  "Version": "2012-10-17",
++  "Statement": [
++    {
++      "Effect": "Allow",
++      "Principal": { "Federated": "${oidc_provider_arn}" },
++      "Action": "sts:AssumeRoleWithWebIdentity",
++      "Condition": {
++        "StringEquals": {
++          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
++          "token.actions.githubusercontent.com:sub": "repo:${repository}:ref:refs/heads/main"
++        }
++      }
++    }
++  ]
++}
+diff --git a/app/infra/policies/github-deploy.json b/app/infra/policies/github-deploy.json
+new file mode 100644
+index 0000000..2d7e8dd
+--- /dev/null
++++ b/app/infra/policies/github-deploy.json
+@@ -0,0 +1,17 @@
++{
++  "Version": "2012-10-17",
++  "Statement": [
++    {
++      "Sid": "PutEvidenceAndBackups",
++      "Effect": "Allow",
++      "Action": ["s3:PutObject"],
++      "Resource": ["${evidence_bucket_arn}/*", "${backups_bucket_arn}/*"]
++    },
++    {
++      "Sid": "DeployApi",
++      "Effect": "Allow",
++      "Action": ["ecs:UpdateService", "ecs:DescribeServices", "ecs:RegisterTaskDefinition"],
++      "Resource": ["${ecs_cluster_arn}", "${ecs_service_arn_prefix}*"]
++    }
++  ]
++}
+diff --git a/app/infra/policies/task-trust.json b/app/infra/policies/task-trust.json
+new file mode 100644
+index 0000000..46f82d4
+--- /dev/null
++++ b/app/infra/policies/task-trust.json
+@@ -0,0 +1,10 @@
++{
++  "Version": "2012-10-17",
++  "Statement": [
++    {
++      "Effect": "Allow",
++      "Principal": { "Service": "ecs-tasks.amazonaws.com" },
++      "Action": "sts:AssumeRole"
++    }
++  ]
++}
+diff --git a/app/infra/policies/task.json b/app/infra/policies/task.json
+new file mode 100644
+index 0000000..39635e1
+--- /dev/null
++++ b/app/infra/policies/task.json
+@@ -0,0 +1,23 @@
++{
++  "Version": "2012-10-17",
++  "Statement": [
++    {
++      "Sid": "WriteLogs",
++      "Effect": "Allow",
++      "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
++      "Resource": ["${log_group_arns}"]
++    },
++    {
++      "Sid": "ReadDatabaseSecret",
++      "Effect": "Allow",
++      "Action": "secretsmanager:GetSecretValue",
++      "Resource": "${db_secret_arn}"
++    },
++    {
++      "Sid": "WriteExports",
++      "Effect": "Allow",
++      "Action": ["s3:PutObject", "s3:GetObject"],
++      "Resource": "${exports_bucket_arn}/*"
++    }
++  ]
++}
+diff --git a/app/mise.toml b/app/mise.toml
+index 2b412a9..c9ce11f 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -100,6 +100,11 @@ description = "リリース済みのイメージを，最新の脆弱性のデ
+ depends = ["install"]
+ run = "pnpm exec tsx tools/gates/image.ts"
+ 
++[tasks."gate:iam"]
++description = "OpenTofuのコードの権限(IAM)を検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/iam.ts"
++
+ [tasks.sbom]
+ description = "コンポーネントごとのSBOM(CycloneDX)を作る"
+ depends = ["install"]
+@@ -149,7 +154,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning", "gate:eol"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning", "gate:eol", "gate:iam"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+@@ -171,6 +176,16 @@ description = "最新のバックアップを新しいデータベースに戻
+ depends = ["install"]
+ run = "pnpm exec tsx tools/ops/restore-test.ts"
+ 
++[tasks."ops:access-review"]
++description = "権限の棚卸しの報告を作る"
++depends = ["install"]
++run = "pnpm exec tsx tools/ops/access-review.ts"
++
++[tasks."ops:rotate-db-password"]
++description = "データベースのパスワードを交換する"
++depends = ["install"]
++run = "pnpm exec tsx tools/ops/rotate-db-password.ts"
++
+ [tasks."evidence:upload"]
+ description = "out/evidence/ の証跡を，日付とコミットごとに証跡の保管場所へ送る"
+ run = """
+@@ -195,7 +210,7 @@ run = "tofu -chdir=infra destroy -input=false -auto-approve"
+ description = "APIを起動する(先にmise run upを実行する)"
+ env = { TEST_USER_PASSWORD = "password", LOG_GROUP_PREFIX = "/app/" }
+ run = """
+-DATABASE_URL="$(tofu -chdir=infra output -raw database_url)" \
++DATABASE_URL="$(pnpm exec tsx tools/ops/db.ts)" \
+ go -C apps/api run ./cmd/api
+ """
+ 
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 8bf2129..854d057 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -24,3 +24,6 @@
+ | dependency-updates | 依存関係の更新 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.19 | file: renovate.json | Renovateが作った更新のプルリクエストと，そのレビューの記録 | 定常(毎週)と非定常(脆弱性の修正が出たとき) | 自動 |  |
+ | release-rescan | リリース済みのイメージの再検査 | 基盤運用 | ISO27001:A.8.8<br>SOC2:CC7.1 | rescan.yml: rescan | 再検査の結果(JSON)をartifactとして保存 | 定常(毎日) | 自動 |  |
+ | eol-tracking | サポートの終了の管理 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.5.21 | ci.yml: eol | CIのeolジョブの結果 | 定常(変更ごと) | 自動 |  |
++| least-privilege | 権限を必要な分だけにする | 基盤運用 | ISO27001:A.5.15<br>ISO27001:A.8.2<br>SOC2:CC6.3 | ci.yml: iam | CIのiamジョブの結果と，policies/ のJSONの変更履歴 | 定常(変更ごと) | 自動 |  |
++| access-review | 権限の棚卸し | 業務運用 | ISO27001:A.5.18<br>SOC2:CC6.2 | access.yml: access-review | 棚卸しの報告(IAMの利用者とアクセスキー，CloudTrailの記録，GitHubの協力者) | 定常(standards.yaml の access.review_interval_days ごと) | 人 | [手順書](runbooks/access-review.md) |
++| credential-rotation | 認証情報の交換 | 基盤運用 | ISO27001:A.5.17<br>SOC2:CC6.1 | access.yml: rotate-db-password | 交換の結果と，運用の作業の記録 | 定常(standards.yaml の credentials.max_age_days より短い間隔)と非定常(漏洩のとき) | 自動 | [手順書](runbooks/credential-rotation.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 398ac85..7380499 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -262,3 +262,58 @@ items:
+     evidence: CIのeolジョブの結果
+     timing: 定常(変更ごと)
+     actor: 自動
++
++  - id: least-privilege
++    title: 権限を必要な分だけにする
++    category: 基盤運用
++    requirements: [ISO27001:A.5.15, ISO27001:A.8.2, SOC2:CC6.3]
++    mechanisms:
++      - workflow: ci.yml
++        job: iam
++    evidence: CIのiamジョブの結果と，policies/ のJSONの変更履歴
++    timing: 定常(変更ごと)
++    actor: 自動
++
++  - id: access-review
++    title: 権限の棚卸し
++    category: 業務運用
++    requirements: [ISO27001:A.5.18, SOC2:CC6.2]
++    mechanisms:
++      - workflow: access.yml
++        job: access-review
++    evidence: 棚卸しの報告(IAMの利用者とアクセスキー，CloudTrailの記録，GitHubの協力者)
++    timing: 定常(standards.yaml の access.review_interval_days ごと)
++    actor: 人
++    runbook: runbooks/access-review.md
++    records:
++      - question: 決めた間隔で権限を棚卸ししていたことを示す
++        asker: 監査人
++        within: 依頼から1週間以内
++        keep_days: 400
++        log: ops
++        fields: [time, job, result, detail]
++      - question: 棚卸しの期間に，誰が誰の権限を変えたかを示す
++        asker: セキュリティ責任者
++        within: 棚卸しの日
++        keep_days: 90
++        log: audit
++        fields: [time, actor_id, action, target_id, result]
++
++  - id: credential-rotation
++    title: 認証情報の交換
++    category: 基盤運用
++    requirements: [ISO27001:A.5.17, SOC2:CC6.1]
++    mechanisms:
++      - workflow: access.yml
++        job: rotate-db-password
++    evidence: 交換の結果と，運用の作業の記録
++    timing: 定常(standards.yaml の credentials.max_age_days より短い間隔)と非定常(漏洩のとき)
++    actor: 自動
++    runbook: runbooks/credential-rotation.md
++    records:
++      - question: パスワードを決めた日数のうちに交換していたことを示す
++        asker: 監査人
++        within: 依頼から1週間以内
++        keep_days: 400
++        log: ops
++        fields: [time, job, result, detail]
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index 9762b5f..23fcf42 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -50,3 +50,13 @@ mainに入るには，standards.yaml の `change.required_approvals` 人の承
+ 公開から3日たった版だけを取り込み，公開直後に問題が見つかった版を避ける．
+ 脆弱性の修正は，スケジュールを待たずにすぐプルリクエストにする．
+ 更新のプルリクエストも，ほかの変更と同じくCIとレビューを通してからmainに入れる．
++
++## 権限
++
++| 権限 | 承認する人 | 決まり |
++| --- | --- | --- |
++| AWSの権限(policies/ のJSON) | セキュリティ責任者 | 必要な操作と対象だけを許す．変更はプルリクエストで行う． |
++| GitHubのリポジトリの権限 | リポジトリ管理者 | 書き込みは開発チームだけ．離任した人は，その日のうちに外す． |
++| CIからAWSへの権限 | セキュリティ責任者 | OIDCで，mainのブランチからだけ引き受けられるロールを使う．長期のアクセスキーは作らない． |
++
++権限は standards.yaml の `access.review_interval_days` ごとに棚卸しする([手順書](runbooks/access-review.md))．
+diff --git a/app/ops/records.md b/app/ops/records.md
+index 8ddaaf4..2f6f691 100644
+--- a/app/ops/records.md
++++ b/app/ops/records.md
+@@ -11,6 +11,9 @@
+ | audit-logging | ログインの失敗が続くアカウントを見つける | セキュリティ責任者 | 発生から1日以内 | 90日 | audit | time, actor_email, action, result, source_ip |
+ | backup | バックアップが決めた間隔で取れていたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
+ | restore-test | バックアップから戻せることを確かめていたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
++| access-review | 決めた間隔で権限を棚卸ししていたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
++| access-review | 棚卸しの期間に，誰が誰の権限を変えたかを示す | セキュリティ責任者 | 棚卸しの日 | 90日 | audit | time, actor_id, action, target_id, result |
++| credential-rotation | パスワードを決めた日数のうちに交換していたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
+ 
+ ## ログの種類
+ 
+diff --git a/app/ops/runbooks/access-review.md b/app/ops/runbooks/access-review.md
+new file mode 100644
+index 0000000..2c369f4
+--- /dev/null
++++ b/app/ops/runbooks/access-review.md
+@@ -0,0 +1,25 @@
++# 権限の棚卸し
++
++AWSとGitHubの権限が，今の体制に合っているかを確かめる手順．
++access.yml が報告を作り，人が確かめて判断する．
++
++## 実施する人
++
++セキュリティ責任者．standards.yaml の `access.review_interval_days` ごとに行う．
++
++## 手順
++
++1. access.yml の最新の実行から，`access-review/report.json` を取得する．
++2. 次のことを確かめる．
++   - IAMの利用者が，決めた人とシステムだけである．
++   - アクセスキーを持つ利用者がいない(CIはOIDCを使う)．
++   - CloudTrailの記録に，承認していない権限の変更がない．
++   - GitHubの協力者が，今の開発チームの人だけである．離任した人がいない．
++   - 監査ログ(audit)の `user.role_changed` に，承認していない権限の変更がない．
++3. 外すべき権限があれば，その日のうちに外し，Issueに記録する．
++4. 確かめた結果(問題なし，または外した権限)を，Issueに書いて閉じる．
++
++## 証跡
++
++- 棚卸しの報告(`access-review/report.json`)と，運用の作業の記録(ops のログ)．
++- 確かめた結果を書いたIssue．
+diff --git a/app/ops/runbooks/credential-rotation.md b/app/ops/runbooks/credential-rotation.md
+new file mode 100644
+index 0000000..4643ff8
+--- /dev/null
++++ b/app/ops/runbooks/credential-rotation.md
+@@ -0,0 +1,20 @@
++# 認証情報の交換
++
++データベースのパスワードなどの認証情報を交換する手順．
++access.yml が定期的に自動で行う．漏洩したときは，すぐに手で行う．
++
++## 手順
++
++1. データベースのパスワードを交換する．
++
++   ```console
++   mise run ops:rotate-db-password
++   ```
++
++   新しいパスワードをデータベースに設定し，Secrets Managerのシークレット(`app/db-password`)を更新し，新しいパスワードで接続できることを確かめる．
++2. APIを再起動し，新しいパスワードで接続していることを確かめる．APIはシークレットから接続先を読む．
++3. 漏洩による交換なら，[漏洩時の手順書](secret-leak.md)の記録欄にも書く．
++
++## 証跡
++
++- 交換の結果(`rotate-db-password/result.json`)と，運用の作業の記録(ops のログ)．
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+index 729459b..35762d2 100644
+--- a/app/ops/schema/standards.schema.json
++++ b/app/ops/schema/standards.schema.json
+@@ -161,6 +161,36 @@
+           "minimum": 1
+         }
+       }
++    },
++    "access": {
++      "description": "権限の棚卸しの基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "review_interval_days"
++      ],
++      "properties": {
++        "review_interval_days": {
++          "description": "権限を棚卸しする間隔の日数",
++          "type": "integer",
++          "minimum": 1
++        }
++      }
++    },
++    "credentials": {
++      "description": "認証情報の基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "max_age_days"
++      ],
++      "properties": {
++        "max_age_days": {
++          "description": "パスワードやアクセスキーを交換するまでの最長の日数",
++          "type": "integer",
++          "minimum": 1
++        }
++      }
+     }
+   },
+   "required": [
+@@ -172,6 +202,8 @@
+     "monitoring",
+     "logs",
+     "backup",
+-    "eol"
++    "eol",
++    "access",
++    "credentials"
+   ]
+ }
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+index e0dec15..81bf1da 100644
+--- a/app/ops/standards.yaml
++++ b/app/ops/standards.yaml
+@@ -47,3 +47,11 @@ backup:
+ eol:
+   # サポートの終了までの日数がこれより短い言語やベースイメージがあれば，ゲートを失敗させる．
+   warn_days: 90
++
++access:
++  # 権限(IAM，GitHub)を棚卸しする間隔．
++  review_interval_days: 30
++
++credentials:
++  # パスワードやアクセスキーを交換するまでの最長の日数．
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/iam/access-key/main.tf b/app/tests/gates/fixtures/iam/access-key/main.tf
+new file mode 100644
+index 0000000..91bf258
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/access-key/main.tf
+@@ -0,0 +1,7 @@
++resource "aws_iam_user" "ci" {
++  name = "ci"
++}
++
++resource "aws_iam_access_key" "ci" {
++  user = aws_iam_user.ci.name
++}
+diff --git a/app/tests/gates/fixtures/iam/good/main.tf b/app/tests/gates/fixtures/iam/good/main.tf
+new file mode 100644
+index 0000000..337697d
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/good/main.tf
+@@ -0,0 +1 @@
++resource "aws_iam_role" "deploy" { assume_role_policy = file("policies/trust.json") }
+diff --git a/app/tests/gates/fixtures/iam/good/policies/app.json b/app/tests/gates/fixtures/iam/good/policies/app.json
+new file mode 100644
+index 0000000..0458f72
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/good/policies/app.json
+@@ -0,0 +1 @@
++{ "Version": "2012-10-17", "Statement": [{ "Effect": "Allow", "Action": ["s3:PutObject"], "Resource": "arn:aws:s3:::evidence/*" }] }
+diff --git a/app/tests/gates/fixtures/iam/good/policies/trust.json b/app/tests/gates/fixtures/iam/good/policies/trust.json
+new file mode 100644
+index 0000000..a0d7bde
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/good/policies/trust.json
+@@ -0,0 +1,12 @@
++{
++  "Version": "2012-10-17",
++  "Statement": [{
++    "Effect": "Allow",
++    "Principal": { "Federated": "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com" },
++    "Action": "sts:AssumeRoleWithWebIdentity",
++    "Condition": { "StringEquals": {
++      "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
++      "token.actions.githubusercontent.com:sub": "repo:example/app:ref:refs/heads/main"
++    } }
++  }]
++}
+diff --git a/app/tests/gates/fixtures/iam/inline/main.tf b/app/tests/gates/fixtures/iam/inline/main.tf
+new file mode 100644
+index 0000000..4ff19e5
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/inline/main.tf
+@@ -0,0 +1,4 @@
++resource "aws_iam_role_policy" "app" {
++  role   = "app"
++  policy = jsonencode({ Version = "2012-10-17", Statement = [] })
++}
+diff --git a/app/tests/gates/fixtures/iam/loose-trust/main.tf b/app/tests/gates/fixtures/iam/loose-trust/main.tf
+new file mode 100644
+index 0000000..337697d
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/loose-trust/main.tf
+@@ -0,0 +1 @@
++resource "aws_iam_role" "deploy" { assume_role_policy = file("policies/trust.json") }
+diff --git a/app/tests/gates/fixtures/iam/loose-trust/policies/trust.json b/app/tests/gates/fixtures/iam/loose-trust/policies/trust.json
+new file mode 100644
+index 0000000..dd1e428
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/loose-trust/policies/trust.json
+@@ -0,0 +1,9 @@
++{
++  "Version": "2012-10-17",
++  "Statement": [{
++    "Effect": "Allow",
++    "Principal": { "Federated": "arn:aws:iam::000000000000:oidc-provider/token.actions.githubusercontent.com" },
++    "Action": "sts:AssumeRoleWithWebIdentity",
++    "Condition": { "StringLike": { "token.actions.githubusercontent.com:sub": "repo:example/*" } }
++  }]
++}
+diff --git a/app/tests/gates/fixtures/iam/wildcard/main.tf b/app/tests/gates/fixtures/iam/wildcard/main.tf
+new file mode 100644
+index 0000000..1be6539
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/wildcard/main.tf
+@@ -0,0 +1 @@
++resource "aws_iam_role_policy" "app" { policy = file("policies/app.json") }
+diff --git a/app/tests/gates/fixtures/iam/wildcard/policies/app.json b/app/tests/gates/fixtures/iam/wildcard/policies/app.json
+new file mode 100644
+index 0000000..f21df5e
+--- /dev/null
++++ b/app/tests/gates/fixtures/iam/wildcard/policies/app.json
+@@ -0,0 +1 @@
++{ "Version": "2012-10-17", "Statement": [{ "Effect": "Allow", "Action": ["s3:*"], "Resource": "*" }] }
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+index 32d2107..492bfe3 100644
+--- a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -19,3 +19,7 @@ backup:
+   retention_days: 35
+ eol:
+   warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+index 2100c4c..e9482cf 100644
+--- a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -19,3 +19,7 @@ backup:
+   retention_days: 35
+ eol:
+   warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+index 2100c4c..e9482cf 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+@@ -19,3 +19,7 @@ backup:
+   retention_days: 35
+ eol:
+   warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+index 2100c4c..e9482cf 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+@@ -19,3 +19,7 @@ backup:
+   retention_days: 35
+ eol:
+   warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+index 2100c4c..e9482cf 100644
+--- a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -19,3 +19,7 @@ backup:
+   retention_days: 35
+ eol:
+   warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+index 2100c4c..e9482cf 100644
+--- a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -19,3 +19,7 @@ backup:
+   retention_days: 35
+ eol:
+   warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/iam.test.ts b/app/tests/gates/iam.test.ts
+new file mode 100644
+index 0000000..518cd61
+--- /dev/null
++++ b/app/tests/gates/iam.test.ts
+@@ -0,0 +1,53 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/iam/<name> のOpenTofuのコードとポリシーを検査する． */
++function iam(name: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/iam.ts",
++    "--infra",
++    fixture("iam", name),
++  ]);
++}
++
++describe("gate:iam", () => {
++  it("ポリシーをコードの中に書いていれば失敗する", () => {
++    const result = iam("inline");
++    expect(result.output).toContain("ポリシーをコードの中に書いている");
++    expect(result.status).toBe(1);
++  });
++
++  it("長期のアクセスキーを作っていれば失敗する", () => {
++    const result = iam("access-key");
++    expect(result.output).toContain(
++      "長期のアクセスキー(aws_iam_access_key)を作っている",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("すべての操作やすべての対象を許すポリシーがあれば失敗する", () => {
++    const result = iam("wildcard");
++    expect(result.output).toContain("操作 s3:* はすべての操作を許す");
++    expect(result.output).toContain("対象 * はすべての対象を許す");
++    expect(result.status).toBe(1);
++  });
++
++  it("OIDCの信頼ポリシーがリポジトリとブランチを絞っていなければ失敗する", () => {
++    const result = iam("loose-trust");
++    expect(result.output).toContain(
++      "OIDCの aud を sts.amazonaws.com に絞っていない",
++    );
++    expect(result.output).toContain(
++      "OIDCの sub を1つのリポジトリのブランチか環境に絞っていない(repo:example/*)",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("権限を絞ったポリシーだけなら通る", () => {
++    const result = iam("good");
++    expect(result.output).toContain("no problems");
++    expect(result.status).toBe(0);
++  });
++});
+diff --git a/app/tests/ops/access.test.ts b/app/tests/ops/access.test.ts
+new file mode 100644
+index 0000000..1db9b17
+--- /dev/null
++++ b/app/tests/ops/access.test.ts
+@@ -0,0 +1,38 @@
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { beforeAll, describe, expect, it } from "vitest";
++import { readDbSecret, toUrl } from "../../tools/ops/db.ts";
++import { evidenceDir, run } from "../gates/helpers.ts";
++
++// 本番の環境(mise run up で作った環境)で，パスワードの交換と権限の棚卸しを動かして確かめる．
++let before: ReturnType<typeof readDbSecret>;
++let rotate: ReturnType<typeof run>;
++let review: ReturnType<typeof run>;
++
++beforeAll(() => {
++  before = readDbSecret();
++  rotate = run("pnpm", ["exec", "tsx", "tools/ops/rotate-db-password.ts"]);
++  review = run("pnpm", ["exec", "tsx", "tools/ops/access-review.ts"]);
++}, 120_000);
++
++describe("パスワードの交換", () => {
++  it("新しいパスワードで接続でき，古いパスワードでは接続できない", () => {
++    expect(rotate.status, rotate.output).toBe(0);
++    const after = readDbSecret();
++    expect(after.password).not.toBe(before.password);
++    expect(run("psql", [toUrl(after), "-tAc", "SELECT 1"]).status).toBe(0);
++    expect(run("psql", [toUrl(before), "-tAc", "SELECT 1"]).status).not.toBe(0);
++  });
++});
++
++describe("権限の棚卸し", () => {
++  it("IAMの利用者とアクセスキー，CloudTrailの記録を報告に残す", () => {
++    expect(review.status, review.output).toBe(0);
++    const report = JSON.parse(
++      readFileSync(join(evidenceDir, "access-review/report.json"), "utf8"),
++    );
++    expect(report.access_key_holders).toEqual([]);
++    expect(report.iam_users.length).toBeGreaterThan(0);
++    expect(report.cloudtrail_events.length).toBeGreaterThan(0);
++  });
++});
+diff --git a/app/tests/ops/backup.test.ts b/app/tests/ops/backup.test.ts
+index 844ec53..404a1e0 100644
+--- a/app/tests/ops/backup.test.ts
++++ b/app/tests/ops/backup.test.ts
+@@ -3,6 +3,7 @@ import { join } from "node:path";
+ import { Ajv2020 } from "ajv/dist/2020.js";
+ import { beforeAll, describe, expect, it } from "vitest";
+ import { parse } from "yaml";
++import { databaseUrl } from "../../tools/ops/db.ts";
+ import { logLineSchema, readLogs } from "../../tools/ops/logs.ts";
+ import { appRoot, evidenceDir, run } from "../gates/helpers.ts";
+ 
+@@ -17,9 +18,8 @@ function tofuOutput(name: string): string {
+ 
+ beforeAll(() => {
+   // 戻した後で数を比べるための行を用意する．
+-  const databaseUrl = tofuOutput("database_url");
+   run("psql", [
+-    databaseUrl,
++    databaseUrl(),
+     "-c",
+     `DROP TABLE IF EXISTS restore_check; CREATE TABLE restore_check AS SELECT generate_series(1, ${rows}) AS n`,
+   ]);
+diff --git a/app/tests/ops/logs.test.ts b/app/tests/ops/logs.test.ts
+index 0156fcd..5faf28e 100644
+--- a/app/tests/ops/logs.test.ts
++++ b/app/tests/ops/logs.test.ts
+@@ -4,6 +4,7 @@ import { join } from "node:path";
+ import { Ajv2020 } from "ajv/dist/2020.js";
+ import { afterAll, beforeAll, describe, expect, it } from "vitest";
+ import { parse } from "yaml";
++import { databaseUrl } from "../../tools/ops/db.ts";
+ import { logLineSchema, readLogs } from "../../tools/ops/logs.ts";
+ import { appRoot, run } from "../gates/helpers.ts";
+ 
+@@ -46,16 +47,10 @@ beforeAll(async () => {
+     join(appRoot, "apps/api"),
+   );
+   expect(build.status).toBe(0);
+-  const databaseUrl = run("tofu", [
+-    "-chdir=infra",
+-    "output",
+-    "-raw",
+-    "database_url",
+-  ]).output;
+   api = spawn(join(appRoot, "out/api-ops-test"), [], {
+     env: {
+       ...process.env,
+-      DATABASE_URL: databaseUrl,
++      DATABASE_URL: databaseUrl(),
+       TEST_USER_PASSWORD: password,
+       LOG_GROUP_PREFIX: "/app/",
+       PORT: String(port),
+diff --git a/app/tools/gates/iam.ts b/app/tools/gates/iam.ts
+new file mode 100644
+index 0000000..7785785
+--- /dev/null
++++ b/app/tools/gates/iam.ts
+@@ -0,0 +1,110 @@
++// OpenTofuのコードの権限(IAM)を検査する．Trivyの既定のルールでは見つからない次の誤りを見つける．
++// - ポリシーを policies/ のJSONに分けず，コードの中に書いている(検査できない)．
++// - 長期のアクセスキー(aws_iam_access_key)を作っている．
++// - 許可のポリシーに，すべての操作(* や s3:*)やすべての対象(*)を書いている．
++// - GitHub Actions向けの信頼ポリシーが，引き受けられるリポジトリとブランチを絞っていない．
++import { readdirSync, readFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++
++type Statement = {
++  Effect: string;
++  Action?: string | string[];
++  Resource?: string | string[];
++  Principal?: { Federated?: string };
++  Condition?: Record<string, Record<string, string | string[]>>;
++};
++
++const list = (v?: string | string[]) =>
++  v === undefined ? [] : Array.isArray(v) ? v : [v];
++const githubOidc = "token.actions.githubusercontent.com";
++// 引き受けられるのを，1つのリポジトリの1つのブランチか環境に絞った sub の形．
++const narrowSub =
++  /^repo:[^*/]+\/[^*]+:(ref:refs\/heads\/[^*]+|environment:[^*]+)$/;
++
++/** JSONのポリシーの問題を返す． */
++export function checkPolicy(
++  name: string,
++  policy: { Statement: Statement[] },
++): string[] {
++  return policy.Statement.flatMap((s) => {
++    if (s.Effect !== "Allow") return [];
++    const problems: string[] = [];
++    for (const action of list(s.Action)) {
++      if (action === "*" || action.endsWith(":*")) {
++        problems.push(`${name}: 操作 ${action} はすべての操作を許す`);
++      }
++    }
++    if (list(s.Resource).includes("*")) {
++      problems.push(`${name}: 対象 * はすべての対象を許す`);
++    }
++    if (s.Principal?.Federated !== undefined) {
++      const conditions = Object.values(s.Condition ?? {});
++      const aud = conditions.flatMap((c) => list(c[`${githubOidc}:aud`]));
++      const sub = conditions.flatMap((c) => list(c[`${githubOidc}:sub`]));
++      if (!aud.includes("sts.amazonaws.com")) {
++        problems.push(
++          `${name}: OIDCの aud を sts.amazonaws.com に絞っていない`,
++        );
++      }
++      // OpenTofuのテンプレートの変数(${...})は，固定の値として扱う．変数の値は，変数の validation で確かめる．
++      const fixed = sub.map((v) => v.replace(/\$\{[^}]+\}/g, "owner/repo"));
++      if (fixed.length === 0 || !fixed.every((v) => narrowSub.test(v))) {
++        problems.push(
++          `${name}: OIDCの sub を1つのリポジトリのブランチか環境に絞っていない(${sub.join(", ") || "なし"})`,
++        );
++      }
++    }
++    return problems;
++  });
++}
++
++/** OpenTofuのコードの問題を返す． */
++export function checkTerraform(name: string, text: string): string[] {
++  const problems: string[] = [];
++  if (/resource\s+"aws_iam_access_key"/.test(text)) {
++    problems.push(
++      `${name}: 長期のアクセスキー(aws_iam_access_key)を作っている．OIDCで一時的な認証情報を使う`,
++    );
++  }
++  if (/(policy|assume_role_policy)\s*=\s*jsonencode\(/.test(text)) {
++    problems.push(
++      `${name}: ポリシーをコードの中に書いている．policies/ のJSONに分ける`,
++    );
++  }
++  return problems;
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: { infra: { type: "string", default: "infra" } },
++  });
++  const tf = readdirSync(values.infra).filter((f) => f.endsWith(".tf"));
++  const policiesDir = join(values.infra, "policies");
++  let policies: string[] = [];
++  try {
++    policies = readdirSync(policiesDir).filter((f) => f.endsWith(".json"));
++  } catch {
++    // policies/ がなければ，JSONのポリシーはない．
++  }
++  const problems = [
++    ...tf.flatMap((f) =>
++      checkTerraform(f, readFileSync(join(values.infra, f), "utf8")),
++    ),
++    ...policies.flatMap((f) =>
++      checkPolicy(
++        `policies/${f}`,
++        JSON.parse(readFileSync(join(policiesDir, f), "utf8")),
++      ),
++    ),
++  ];
++  for (const problem of problems) {
++    console.error(problem);
++  }
++  if (problems.length > 0) {
++    process.exit(1);
++  }
++  console.log(
++    `iam: ${tf.length} files, ${policies.length} policies, no problems`,
++  );
++}
+diff --git a/app/tools/ops/access-review.ts b/app/tools/ops/access-review.ts
+new file mode 100644
+index 0000000..3a8cb51
+--- /dev/null
++++ b/app/tools/ops/access-review.ts
+@@ -0,0 +1,99 @@
++// 権限の棚卸しの報告を作る．
++// IAMの認証情報レポート(利用者と，アクセスキーの有無と古さ)，CloudTrailのIAMの操作の記録，
++// GitHubのリポジトリの協力者と権限をまとめ，証跡に残す．
++import { spawnSync } from "node:child_process";
++import { writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { evidenceDir, opsLog, sh } from "./run.ts";
++import { readStandards } from "./standards.ts";
++
++try {
++  const maxAge = readStandards("ops").credentials.max_age_days;
++  sh("aws", ["iam", "generate-credential-report"]);
++  const csv = Buffer.from(
++    sh("aws", [
++      "iam",
++      "get-credential-report",
++      "--query",
++      "Content",
++      "--output",
++      "text",
++    ]),
++    "base64",
++  ).toString("utf8");
++  const [header, ...rows] = csv
++    .trim()
++    .split("\n")
++    .map((l) => l.split(","));
++  const users = rows.map((r) =>
++    Object.fromEntries(header.map((h, i) => [h, r[i]])),
++  );
++
++  // 有効なアクセスキーと，基準値より古いアクセスキーを持つ利用者．
++  const now = Date.now();
++  const keyHolders = users.filter(
++    (u) => u.access_key_1_active === "true" || u.access_key_2_active === "true",
++  );
++  const staleKeys = keyHolders.filter((u) =>
++    ["access_key_1_last_rotated", "access_key_2_last_rotated"].some(
++      (k) =>
++        u[k] && u[k] !== "N/A" && now - Date.parse(u[k]) > maxAge * 86_400_000,
++    ),
++  );
++
++  const events = JSON.parse(
++    sh("aws", ["cloudtrail", "lookup-events", "--max-results", "50"]),
++  ).Events as {
++    EventName: string;
++    EventTime: string;
++    Username?: string;
++  }[];
++
++  // GitHubの協力者は，gh でログインしていれば取得する．
++  const gh = spawnSync(
++    "gh",
++    [
++      "api",
++      "repos/{owner}/{repo}/collaborators",
++      "--jq",
++      "[.[] | {login, role_name}]",
++    ],
++    {
++      encoding: "utf8",
++    },
++  );
++  const collaborators = gh.status === 0 ? JSON.parse(gh.stdout) : null;
++
++  const report = {
++    time: new Date().toISOString(),
++    iam_users: users.map((u) => u.user),
++    access_key_holders: keyHolders.map((u) => u.user),
++    stale_access_keys: staleKeys.map((u) => u.user),
++    cloudtrail_events: events.map((e) => ({
++      name: e.EventName,
++      time: e.EventTime,
++      user: e.Username,
++    })),
++    github_collaborators:
++      collaborators ?? "gh でログインしていないので取得していない",
++  };
++  writeFileSync(
++    join(evidenceDir("access-review"), "report.json"),
++    JSON.stringify(report, null, 2),
++  );
++  const ok = keyHolders.length === 0;
++  opsLog(
++    "access-review",
++    ok,
++    `利用者${users.length}件，アクセスキーを持つ利用者${keyHolders.length}件，古いアクセスキー${staleKeys.length}件`,
++  );
++  if (!ok) {
++    console.error(
++      `アクセスキーを持つ利用者がいる：${keyHolders.map((u) => u.user).join(", ")}`,
++    );
++    process.exit(1);
++  }
++} catch (error) {
++  opsLog("access-review", false, String(error));
++  process.exit(1);
++}
+diff --git a/app/tools/ops/backup.ts b/app/tools/ops/backup.ts
+index 145238a..0e42468 100644
+--- a/app/tools/ops/backup.ts
++++ b/app/tools/ops/backup.ts
+@@ -3,10 +3,11 @@
+ import { createHash } from "node:crypto";
+ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+ import { join } from "node:path";
++import { databaseUrl as secretDatabaseUrl } from "./db.ts";
+ import { countRows, evidenceDir, opsLog, sh, tofuOutput } from "./run.ts";
+ 
+ try {
+-  const databaseUrl = process.env.DATABASE_URL ?? tofuOutput("database_url");
++  const databaseUrl = process.env.DATABASE_URL ?? secretDatabaseUrl();
+   const bucket = tofuOutput("backup_bucket");
+   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+   const key = `${stamp.slice(0, 10)}/app-${stamp}.dump`;
+diff --git a/app/tools/ops/db.ts b/app/tools/ops/db.ts
+new file mode 100644
+index 0000000..0f7f6ce
+--- /dev/null
++++ b/app/tools/ops/db.ts
+@@ -0,0 +1,40 @@
++// データベースの接続先と認証情報を，Secrets Managerのシークレットから得る．
++// パスワードの正はシークレットだけにあるので，交換した後も古くならない．
++import { sh, tofuOutput } from "./run.ts";
++
++export type DbSecret = {
++  username: string;
++  password: string;
++  host: string;
++  port: number;
++  dbname: string;
++};
++
++export function readDbSecret(secretId = tofuOutput("db_secret_id")): DbSecret {
++  return JSON.parse(
++    sh("aws", [
++      "secretsmanager",
++      "get-secret-value",
++      "--secret-id",
++      secretId,
++      "--query",
++      "SecretString",
++      "--output",
++      "text",
++    ]),
++  );
++}
++
++export function toUrl(s: DbSecret): string {
++  return `postgres://${s.username}:${encodeURIComponent(s.password)}@${s.host}:${s.port}/${s.dbname}`;
++}
++
++/** データベースの接続先のURL． */
++export function databaseUrl(): string {
++  return toUrl(readDbSecret());
++}
++
++// コマンドとして実行すると，接続先のURLを表示する(mise run dev:api が使う)．
++if (import.meta.main) {
++  console.log(databaseUrl());
++}
+diff --git a/app/tools/ops/rotate-db-password.ts b/app/tools/ops/rotate-db-password.ts
+new file mode 100644
+index 0000000..7c57220
+--- /dev/null
++++ b/app/tools/ops/rotate-db-password.ts
+@@ -0,0 +1,49 @@
++// データベースのパスワードを交換する．
++// 新しいパスワードをデータベースに設定し，シークレットを更新し，新しいパスワードで接続できることを確かめる．
++import { randomBytes } from "node:crypto";
++import { writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { readDbSecret, toUrl } from "./db.ts";
++import { evidenceDir, opsLog, sh, tofuOutput } from "./run.ts";
++
++try {
++  const secretId = tofuOutput("db_secret_id");
++  const current = readDbSecret(secretId);
++  const next = { ...current, password: randomBytes(24).toString("hex") };
++
++  // 新しいパスワードを，今のパスワードで接続して設定する．
++  sh("psql", [
++    toUrl(current),
++    "-v",
++    "ON_ERROR_STOP=1",
++    "-c",
++    `ALTER ROLE "${current.username}" PASSWORD '${next.password}'`,
++  ]);
++  sh("aws", [
++    "secretsmanager",
++    "put-secret-value",
++    "--secret-id",
++    secretId,
++    "--secret-string",
++    JSON.stringify(next),
++  ]);
++  sh("psql", [toUrl(next), "-tAc", "SELECT 1"]);
++
++  const result = {
++    time: new Date().toISOString(),
++    secret: secretId,
++    user: current.username,
++  };
++  writeFileSync(
++    join(evidenceDir("rotate-db-password"), "result.json"),
++    JSON.stringify(result, null, 2),
++  );
++  opsLog(
++    "rotate-db-password",
++    true,
++    `${secretId} の ${current.username} のパスワードを交換した`,
++  );
++} catch (error) {
++  opsLog("rotate-db-password", false, String(error));
++  process.exit(1);
++}
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+index 37156a5..4c6a3de 100644
+--- a/app/tools/ops/standards.ts
++++ b/app/tools/ops/standards.ts
+@@ -15,6 +15,8 @@ export type Standards = {
+   logs: { retention_days: Record<string, number> };
+   backup: { interval_hours: number; retention_days: number };
+   eol: { warn_days: number };
++  access: { review_interval_days: number };
++  credentials: { max_age_days: number };
+ };
+ 
+ /** 例外．ops/schema/exceptions.schema.json の形に合う． */

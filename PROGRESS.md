@@ -7,8 +7,8 @@
 
 | 回 | 状況 |
 | --- | --- |
-| 0〜10 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
-| 11〜14 | 未着手． |
+| 0〜11 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
+| 12〜14 | 未着手． |
 
 ## 作り方
 
@@ -35,6 +35,7 @@
 - Dockerのデーモンは`dockerd`を手で起動する．止まっていたら起動し直す．
 - Docker Hubの取得回数の制限を避けるため，`/etc/docker/daemon.json`にミラー(`mirror.gcr.io`)を設定した．
 - イメージのビルドでは，ホストのGoのモジュールのキャッシュを`python3 -m http.server 8099`で配り，`DOCKER_BUILD_ARGS="--network host --build-arg GOPROXY=http://127.0.0.1:8099"`を渡す．
+- コンテナが作り直されると，`/etc/hosts`の追記，`dockerd`，モジュールプロキシ(`http.server 8099`)が消える．作業を再開するときに起動し直す．
 - `gate:eol`はendoflife.dateに問い合わせるので，ネットワークが要る．
 - `000000000000.localhost`を`/etc/hosts`に足した．MiniStackは`docker run --network chnet --network-alias 000000000000.ministack -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock`で起動する．
 - PostgreSQLのクライアントは，この検証環境のホストにある(16系)．Dev ContainerにはDockerfileで入れる．
@@ -43,7 +44,7 @@
 
 ## 次にやること
 
-第11回(権限の管理)から始める．作業用のリポジトリの最新のタグは`sol10`である．
+第12回(脆弱性のトリアージ)から始める．作業用のリポジトリの最新のタグは`sol11`である．
 
 ## 第9回から第14回でやること
 
@@ -53,7 +54,7 @@
   リストアの訓練は，新しいRDSを作って戻し，行数と内容を比べる運用テストにする．定期ジョブは`schedule`のワークフローで，`act schedule`で確かめる．`records`に，バックアップと訓練の成否を足す．
 - 第10回 更新と定期的な再検査：`renovate.json`(actionのハッシュも更新する)，保管済みのSBOMの再検査(`trivy sbom`)の定期ジョブ，`mise.toml`の道具の版とendoflife.dateのデータからEOLを検出する`gate:eol`．
   第2回の例外(golang-jwt)をここで直してもよい．
-- 第11回 権限の管理：`gate:config`でIAMポリシーの`*`を検出する(Trivyで足りなければconftestを先取りせずTypeScriptで書く)．GitHub Actions向けのOIDCの信頼ポリシー(`sub`をリポジトリとブランチに絞る)．
+- 第11回 権限の管理(完成)：`gate:config`でIAMポリシーの`*`を検出する(Trivyで足りなければconftestを先取りせずTypeScriptで書く)．GitHub Actions向けのOIDCの信頼ポリシー(`sub`をリポジトリとブランチに絞る)．
   棚卸しの報告(IAMの認証情報レポート，CloudTrail，`gh api`のメンバー一覧)を証跡にする．データベースのパスワードの交換のスクリプトと手順書．
 - 第12回 脆弱性のトリアージ：初めて検出された日を証跡の保管場所に記録し，基準値の重大度ごとの日数を過ぎたら`gate:sla`が失敗する．期限切れはAlertmanagerのAPIへアラートを送り，第7回の振り分けを使う．
   例外の一覧からTrivyの除外の設定を作る処理を，OpenVEXの文書を作る処理に置き換える(リファクタリング)．

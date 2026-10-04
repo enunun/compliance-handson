@@ -321,19 +321,23 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第11回 権限の管理
 
 - 要求：権限を必要最小限にし，定期的に棚卸しする．認証情報を定期的に交換する(ISO/IEC 27001 A.5.15，A.5.18，A.8.2)．
-- 仕込む問題：`infra/`に，すべての操作を許すIAMポリシーがある．使われていないアクセスキーが残っている．
-- 使用例：`mise run gate:config`がIAMポリシーの過剰な権限を検出する．
-  `mise run ops:access-review`がIAMとGitHubの権限の棚卸しの報告を作る．
-  `mise run ops:rotate-db-password`がデータベースのパスワードを交換する．
+- 仕込む問題：APIのタスクのロールが，すべての操作を許されている．CIからのデプロイに，長期のアクセスキーを持つIAMの利用者を使っている．
+  GitHub Actions向けのロールの信頼ポリシーが，どのリポジトリからでも引き受けられる．
+- 使用例：`mise run gate:iam`が，権限の誤りを検出する．
+  `mise run ops:access-review`が権限の棚卸しの報告を作り，`mise run ops:rotate-db-password`がデータベースのパスワードを交換する．
 - 追加するもの：
   - `ops/standards.yaml`：`access.review_interval_days`と`credentials.max_age_days`．
-  - `ops/items.yaml`：`least-privilege`，`access-review`，`credential-rotation`．`records`に，棚卸しの期間の権限の変更を，監査ログとCloudTrailから示せることを書く．
-  - `infra/`：GitHub Actions向けのOIDCの信頼ポリシー(対象のリポジトリとブランチを絞る)．
-- ゲートのテスト：すべての操作を許すポリシーと，対象を絞らない信頼ポリシーのfixtureで失敗する．
-- 証跡：棚卸しの報告(IAMの認証情報レポート，CloudTrailの操作記録，GitHubのメンバー一覧)をS3に保管する．
-- 設計書の更新：手順書に棚卸しと交換の手順を書く．運用方針に，権限を承認する人を書く．
-- 既存のテストへの影響：なし．
-- 学習者が行う道具の操作：GitHubのメンバーとチームの権限を確かめる．
+  - `ops/items.yaml`：`least-privilege`，`access-review`，`credential-rotation`．`records`に，棚卸しと交換が行われたことを示す問いを書く．
+  - `infra/policies/`：JSONのポリシー．`infra/iam.tf`は`templatefile`で読む．OIDCの信頼ポリシーは，1つのリポジトリのmainのブランチに絞る．
+  - `tools/gates/iam.ts`と`mise run gate:iam`：Trivyの既定のルールでは見つからない権限の誤りを検出する．
+  - `tools/ops/access-review.ts`，`tools/ops/rotate-db-password.ts`と，それらを定期的に動かす`.github/workflows/access.yml`．
+- リファクタリング：データベースの接続先と認証情報は，Secrets Managerのシークレットにだけ置く．OpenTofuの出力の`database_url`をやめ，スクリプトとテストはシークレットから接続先を組み立てる．
+- ゲートのテスト：ポリシーをコードの中に書く場合，長期のアクセスキー，すべての操作や対象を許すポリシー，絞っていないOIDCの信頼ポリシーで失敗する．
+- 運用テスト：交換した後は新しいパスワードで接続でき，古いパスワードでは接続できないこと，棚卸しの報告ができることを確かめる．
+- 証跡：棚卸しの報告と，交換の結果．
+- 設計書の更新：手順書に棚卸しと交換の手順を書く．運用方針に，権限を承認する人を書く．CODEOWNERSで`infra/policies/`をセキュリティ責任者の承認対象にする．
+- 既存のテストへの影響：第8回と第9回の運用テストは，データベースの接続先をシークレットから得る．`ops:verify`のfixtureの基準値に，権限と認証情報の基準を足す．
+- 学習者が行う道具の操作：`infra/iam.tf`の`github_repository`の既定値を，自分のリポジトリに替える．GitHubのメンバーとチームの権限を確かめる．
 
 ## 第12回 脆弱性のトリアージ
 
