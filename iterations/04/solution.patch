@@ -1,0 +1,577 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 4ca6e87..7043f80 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -77,10 +77,25 @@ jobs:
+           name: evidence-sbom
+           path: app/out/evidence/
+ 
++  sast:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@v5
++      - uses: jdx/mise-action@v3
++      - run: mise run gate:sast
++      - uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: evidence-sast
++          path: app/out/evidence/
++
+   # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
+   # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
+   evidence:
+-    needs: [secrets, sca, sbom]
++    needs: [secrets, sca, sbom, sast]
+     if: always()
+     runs-on: ubuntu-latest
+     services:
+diff --git a/.semgrepignore b/.semgrepignore
+new file mode 100644
+index 0000000..959125a
+--- /dev/null
++++ b/.semgrepignore
+@@ -0,0 +1,5 @@
++# Semgrepが調べないファイル．このファイルを置くと，Semgrepの既定の除外(tests/ など)を置き換える．
++# ゲートのテストの入力(fixtures/)は，app/tools/gates/sast.ts が題材全体を調べるときだけ外す．
++node_modules/
++out/
++.terraform/
+diff --git a/app/.semgrep/rules.yml b/app/.semgrep/rules.yml
+new file mode 100644
+index 0000000..fe13cbe
+--- /dev/null
++++ b/app/.semgrep/rules.yml
+@@ -0,0 +1,35 @@
++# 題材が使うライブラリ(pgx，Hono)に合わせた，Semgrepの自前のルール．
++# レジストリのルールセット(p/golang，p/typescript)と一緒に使う．
++rules:
++  - id: pgx-sql-built-from-string
++    languages: [go]
++    severity: ERROR
++    message: >-
++      SQLを文字列の組み立てで作っている．利用者の入力が混ざるとSQLインジェクションになる．
++      値はSQLの文字列に埋め込まず，プレースホルダーで渡す．
++    metadata:
++      cwe: "CWE-89: SQL Injection"
++    patterns:
++      - pattern-either:
++          - pattern: $DB.$METHOD($CTX, fmt.Sprintf(...), ...)
++          - pattern: $DB.$METHOD($CTX, $A + $B, ...)
++          - pattern: |
++              $SQL := fmt.Sprintf(...)
++              ...
++              $DB.$METHOD($CTX, $SQL, ...)
++      # pgxの問い合わせの関数だけを対象にする．
++      - metavariable-regex:
++          metavariable: $METHOD
++          regex: ^(Query|QueryRow|Exec)$
++
++  - id: hono-raw-with-variable
++    languages: [typescript]
++    severity: ERROR
++    message: >-
++      hono/html の raw() は，渡した文字列をエスケープしない．
++      利用者の入力が混ざるとXSSになる．JSXの中に値をそのまま書けばエスケープされる．
++    metadata:
++      cwe: "CWE-79: Cross-site Scripting"
++    patterns:
++      - pattern: raw($X)
++      - pattern-not: raw("...")
+diff --git a/app/apps/api/internal/server/server_test.go b/app/apps/api/internal/server/server_test.go
+index 540f8ac..e0ebf9e 100644
+--- a/app/apps/api/internal/server/server_test.go
++++ b/app/apps/api/internal/server/server_test.go
+@@ -203,3 +203,22 @@ func TestOnlyAdminCanSetRole(t *testing.T) {
+ 		t.Fatalf("admin: status %d", rec.Code)
+ 	}
+ }
++
++func TestSearchOwnNotes(t *testing.T) {
++	h := server.New(newMemStore(t))
++	admin := loginAs(t, h, "admin@example.com")
++	member := loginAs(t, h, "member@example.com")
++	for _, body := range []string{"買い物", "会議のメモ"} {
++		do(t, h, "POST", "/api/notes", admin, `{"body":"`+body+`"}`)
++	}
++	do(t, h, "POST", "/api/notes", member, `{"body":"会議の準備"}`)
++
++	var notes []store.Note
++	rec := do(t, h, "GET", "/api/notes?q=会議", admin, "")
++	if err := json.NewDecoder(rec.Body).Decode(&notes); err != nil {
++		t.Fatal(err)
++	}
++	if len(notes) != 1 || notes[0].Body != "会議のメモ" {
++		t.Fatalf("notes = %+v", notes)
++	}
++}
+diff --git a/app/apps/api/internal/store/postgres.go b/app/apps/api/internal/store/postgres.go
+index 7035aac..ab602df 100644
+--- a/app/apps/api/internal/store/postgres.go
++++ b/app/apps/api/internal/store/postgres.go
+@@ -3,7 +3,6 @@ package store
+ import (
+ 	"context"
+ 	"errors"
+-	"fmt"
+ 
+ 	"github.com/jackc/pgx/v5"
+ 	"github.com/jackc/pgx/v5/pgxpool"
+@@ -109,10 +108,9 @@ func (p *Postgres) ListNotes(ctx context.Context, ownerID int64) ([]Note, error)
+ }
+ 
+ func (p *Postgres) SearchNotes(ctx context.Context, ownerID int64, query string) ([]Note, error) {
+-	sql := fmt.Sprintf(
+-		"SELECT id, owner_id, body, created_at FROM notes WHERE owner_id = %d AND body LIKE '%%%s%%' ORDER BY id",
+-		ownerID, query)
+-	rows, err := p.pool.Query(ctx, sql)
++	rows, err := p.pool.Query(ctx,
++		`SELECT id, owner_id, body, created_at FROM notes
++		 WHERE owner_id = $1 AND body LIKE '%' || $2 || '%' ORDER BY id`, ownerID, query)
+ 	if err != nil {
+ 		return nil, err
+ 	}
+diff --git a/app/apps/web/src/app.test.tsx b/app/apps/web/src/app.test.tsx
+index cd3cc4c..6357e3e 100644
+--- a/app/apps/web/src/app.test.tsx
++++ b/app/apps/web/src/app.test.tsx
+@@ -56,6 +56,16 @@ describe("画面", () => {
+     );
+   });
+ 
++  it("メモの改行は<br>で表示し，HTMLはエスケープする", async () => {
++    const fetch = vi.fn(async () =>
++      json([{ id: 1, ownerId: 1, body: "a\n<script>", createdAt: "" }]),
++    );
++    const res = await createApp({ apiUrl, fetch }).request("/", {
++      headers: { Cookie: "token=t1" },
++    });
++    expect(await res.text()).toContain("<li>a<br/>&lt;script&gt;</li>");
++  });
++
+   it("空のメモはAPIに送らずに拒む", async () => {
+     const fetch = vi.fn();
+     const res = await createApp({ apiUrl, fetch }).request("/notes", {
+diff --git a/app/apps/web/src/app.tsx b/app/apps/web/src/app.tsx
+index 1d9f2b7..6bb9bec 100644
+--- a/app/apps/web/src/app.tsx
++++ b/app/apps/web/src/app.tsx
+@@ -1,7 +1,6 @@
+ import { type Note, noteInputSchema } from "@app/shared";
+ import { Hono } from "hono";
+ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+-import { raw } from "hono/html";
+ import truncate from "lodash/truncate.js";
+ 
+ type Options = {
+@@ -124,7 +123,14 @@ function NotesPage({ notes }: { notes: Note[] }) {
+       <ul>
+         {notes.map((note) => (
+           <li>
+-            {raw(truncate(note.body, { length: 100 }).replaceAll("\n", "<br>"))}
++            {truncate(note.body, { length: 100 })
++              .split("\n")
++              .map((line, i) => (
++                <>
++                  {i > 0 && <br />}
++                  {line}
++                </>
++              ))}
+           </li>
+         ))}
+       </ul>
+diff --git a/app/mise.toml b/app/mise.toml
+index f2360b5..50b4552 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -62,6 +62,11 @@ description = "例外の期限を検査する"
+ depends = ["install"]
+ run = "pnpm exec tsx tools/gates/exceptions.ts"
+ 
++[tasks."gate:sast"]
++description = "コードの脆弱性をSemgrepで検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/sast.ts"
++
+ [tasks.sbom]
+ description = "コンポーネントごとのSBOM(CycloneDX)を作る"
+ depends = ["install"]
+@@ -101,7 +106,7 @@ depends = ["lint", "test", "test:gates", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+diff --git a/app/ops/exceptions.yaml b/app/ops/exceptions.yaml
+index b4f58af..72f6022 100644
+--- a/app/ops/exceptions.yaml
++++ b/app/ops/exceptions.yaml
+@@ -11,3 +11,21 @@ exceptions:
+       到達しないことを確かめたので，次の定期更新で4.5.2以上に上げるまで受け入れる．
+     approver: "@security-lead"
+     expires: 2026-12-31
++
++  - id: EXC-002
++    target: use-of-sha1
++    path: apps/api/internal/server/server.go
++    reason: >-
++      メモの一覧のETag(キャッシュの判定)にSHA-1を使っている．改ざんの検知や署名には使っていないので，
++      衝突攻撃の影響を受けない．誤検知として扱い，期限までにSHA-256へ替えるかを見直す．
++    approver: "@security-lead"
++    expires: 2026-12-31
++
++  - id: EXC-003
++    target: use-tls
++    path: apps/api/cmd/api/main.go
++    reason: >-
++      本番ではロードバランサーがTLSを終端し，APIへは内部のネットワークだけで届く構成である．
++      誤検知として扱い，期限までに構成を見直す．
++    approver: "@security-lead"
++    expires: 2026-12-31
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 8ca4507..ee71e09 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -11,3 +11,4 @@
+ | sbom | SBOMの作成 | 基盤運用 | SSDF:PS.3<br>METI:SBOM導入の手引 | ci.yml: sbom | コンポーネントごとのSBOM(CycloneDX)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
+ | license-policy | ライセンスの検査 | 運用管理 | ISO27001:A.5.32 | ci.yml: sbom | ライセンスを含むSBOMと，CIのsbomジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | evidence-retention | 証跡の保管 | 基盤運用 | ISO27001:A.5.33<br>SOC2:CC4.1 | ci.yml: evidence | 証跡の保管場所の設定(Object Lock，保管期間)と，運用テストの結果 | 定常(変更ごと) | 自動 |  |
++| sast | コードの脆弱性検査(SAST) | 基盤運用 | ISO27001:A.8.28<br>SSDF:PW.7 | ci.yml: sast | Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index dc5363b..beb249b 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -82,3 +82,15 @@ items:
+     evidence: 証跡の保管場所の設定(Object Lock，保管期間)と，運用テストの結果
+     timing: 定常(変更ごと)
+     actor: 自動
++
++  - id: sast
++    title: コードの脆弱性検査(SAST)
++    category: 基盤運用
++    requirements: [ISO27001:A.8.28, SSDF:PW.7]
++    mechanisms:
++      - workflow: ci.yml
++        job: sast
++    evidence: Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/exception-request.md
+diff --git a/app/ops/runbooks/exception-request.md b/app/ops/runbooks/exception-request.md
+index 4b93432..672716a 100644
+--- a/app/ops/runbooks/exception-request.md
++++ b/app/ops/runbooks/exception-request.md
+@@ -9,6 +9,16 @@
+ - 直した版がまだ出ていない，または直した版に上げると壊れるので，検証の時間が要る．
+ - ゲートの誤検知である．
+ 
++## 誤検知と判断する基準
++
++SAST(Semgrep)の検出を誤検知として例外にするのは，次のどちらかを確かめたときだけである．
++
++- 検出の前提が成り立たない．例えば，弱いハッシュ関数の検出でも，用途がキャッシュの判定で，改ざんの検知や署名に使っていない．
++- 守るべきものを別の仕組みが守っている．例えば，TLSなしのHTTPサーバーの検出でも，TLSをロードバランサーが終端し，サーバーへは内部のネットワークだけで届く．
++
++利用者の入力がSQLやHTMLに届く検出は，誤検知にしない．直す．
++例外では，`target`にルールの識別子を，`path`にファイルを書き，場所を絞る．
++
+ ## 手順
+ 
+ 1. 検出の内容(脆弱性の識別子，パッケージ，重大度)を確かめる．
+diff --git a/app/ops/schema/exceptions.schema.json b/app/ops/schema/exceptions.schema.json
+index ece830e..f587870 100644
+--- a/app/ops/schema/exceptions.schema.json
++++ b/app/ops/schema/exceptions.schema.json
+@@ -3,18 +3,28 @@
+   "title": "例外",
+   "type": "object",
+   "additionalProperties": false,
+-  "required": ["exceptions"],
++  "required": [
++    "exceptions"
++  ],
+   "properties": {
+     "exceptions": {
+       "type": "array",
+-      "items": { "$ref": "#/$defs/exception" }
++      "items": {
++        "$ref": "#/$defs/exception"
++      }
+     }
+   },
+   "$defs": {
+     "exception": {
+       "type": "object",
+       "additionalProperties": false,
+-      "required": ["id", "target", "reason", "approver", "expires"],
++      "required": [
++        "id",
++        "target",
++        "reason",
++        "approver",
++        "expires"
++      ],
+       "properties": {
+         "id": {
+           "description": "例外の識別子(例：EXC-001)",
+@@ -22,7 +32,7 @@
+           "pattern": "^EXC-[0-9]{3}$"
+         },
+         "target": {
+-          "description": "例外にする検出(脆弱性ならCVEなどの識別子)",
++          "description": "例外にする検出(脆弱性ならCVEなどの識別子，SASTならルールの識別子)",
+           "type": "string",
+           "minLength": 1
+         },
+@@ -30,6 +40,10 @@
+           "description": "対象のパッケージ(分かる場合)",
+           "type": "string"
+         },
++        "path": {
++          "description": "対象のファイル(SASTの検出など，場所で特定するとき)",
++          "type": "string"
++        },
+         "reason": {
+           "description": "例外にする理由",
+           "type": "string",
+diff --git a/app/tests/gates/fixtures/exceptions/sha1.yaml b/app/tests/gates/fixtures/exceptions/sha1.yaml
+new file mode 100644
+index 0000000..fddf66f
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/sha1.yaml
+@@ -0,0 +1,7 @@
++exceptions:
++  - id: EXC-001
++    target: use-of-sha1
++    path: etag.go
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2099-12-31
+diff --git a/app/tests/gates/fixtures/sast/safe/page.tsx b/app/tests/gates/fixtures/sast/safe/page.tsx
+new file mode 100644
+index 0000000..820be35
+--- /dev/null
++++ b/app/tests/gates/fixtures/sast/safe/page.tsx
+@@ -0,0 +1,10 @@
++import { raw } from "hono/html";
++
++export function Comment({ text }: { text: string }) {
++  return (
++    <p>
++      {text}
++      {raw("<hr>")}
++    </p>
++  );
++}
+diff --git a/app/tests/gates/fixtures/sast/safe/search.go b/app/tests/gates/fixtures/sast/safe/search.go
+new file mode 100644
+index 0000000..7c2b57a
+--- /dev/null
++++ b/app/tests/gates/fixtures/sast/safe/search.go
+@@ -0,0 +1,8 @@
++package store
++
++import "context"
++
++func (p *Postgres) FindUser(ctx context.Context, email string) error {
++	_, err := p.pool.Exec(ctx, "DELETE FROM sessions WHERE email = $1", email)
++	return err
++}
+diff --git a/app/tests/gates/fixtures/sast/sha1/etag.go b/app/tests/gates/fixtures/sast/sha1/etag.go
+new file mode 100644
+index 0000000..e95adb4
+--- /dev/null
++++ b/app/tests/gates/fixtures/sast/sha1/etag.go
+@@ -0,0 +1,10 @@
++package server
++
++import (
++	"crypto/sha1"
++	"fmt"
++)
++
++func etag(body []byte) string {
++	return fmt.Sprintf(`"%x"`, sha1.Sum(body))
++}
+diff --git a/app/tests/gates/fixtures/sast/sql/search.go b/app/tests/gates/fixtures/sast/sql/search.go
+new file mode 100644
+index 0000000..6a7bae7
+--- /dev/null
++++ b/app/tests/gates/fixtures/sast/sql/search.go
+@@ -0,0 +1,11 @@
++package store
++
++import (
++	"context"
++	"fmt"
++)
++
++func (p *Postgres) FindUser(ctx context.Context, email string) error {
++	_, err := p.pool.Exec(ctx, fmt.Sprintf("DELETE FROM sessions WHERE email = '%s'", email))
++	return err
++}
+diff --git a/app/tests/gates/fixtures/sast/xss/page.tsx b/app/tests/gates/fixtures/sast/xss/page.tsx
+new file mode 100644
+index 0000000..3bae299
+--- /dev/null
++++ b/app/tests/gates/fixtures/sast/xss/page.tsx
+@@ -0,0 +1,5 @@
++import { raw } from "hono/html";
++
++export function Comment({ text }: { text: string }) {
++  return <p>{raw(text)}</p>;
++}
+diff --git a/app/tests/gates/sast.test.ts b/app/tests/gates/sast.test.ts
+new file mode 100644
+index 0000000..fb35956
+--- /dev/null
++++ b/app/tests/gates/sast.test.ts
+@@ -0,0 +1,40 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/sast/<target> を，fixtures/exceptions/<exceptions>.yaml の例外で検査する． */
++function sast(target: string, exceptions = "none") {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/sast.ts",
++    "--target",
++    fixture("sast", target),
++    "--exceptions",
++    fixture("exceptions", `${exceptions}.yaml`),
++  ]);
++}
++
++describe("gate:sast", () => {
++  it("SQLを文字列の組み立てで作るコードがあれば失敗する", () => {
++    const result = sast("sql");
++    expect(result.output).toContain("pgx-sql-built-from-string");
++    expect(result.status).toBe(1);
++  });
++
++  it("raw()に変数を渡すコードがあれば失敗する", () => {
++    const result = sast("xss");
++    expect(result.output).toContain("hono-raw-with-variable");
++    expect(result.status).toBe(1);
++  });
++
++  it("直したコードでは通る", () => {
++    const result = sast("safe");
++    expect(result.output).toContain("sast: no findings");
++    expect(result.status).toBe(0);
++  });
++
++  it("例外に載った検出は外す", () => {
++    expect(sast("sha1").status).toBe(1);
++    expect(sast("sha1", "sha1").status).toBe(0);
++  });
++});
+diff --git a/app/tools/gates/sast.ts b/app/tools/gates/sast.ts
+new file mode 100644
+index 0000000..24d73ca
+--- /dev/null
++++ b/app/tools/gates/sast.ts
+@@ -0,0 +1,84 @@
++// コードの脆弱性をSemgrepで検査する(SAST)．
++// 例外に載った検出は，期限まで外す．それ以外の検出が1つでもあれば失敗する．
++import { spawnSync } from "node:child_process";
++import { mkdirSync, readFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { type Exception, readExceptions } from "../ops/standards.ts";
++
++type Finding = {
++  check_id: string;
++  path: string;
++  start: { line: number };
++  extra: { message: string; severity: string };
++};
++
++const evidenceDir = join(process.env.EVIDENCE_DIR ?? "out/evidence", "sast");
++
++/** 検出が，期限内の例外に当たるかを返す．today は YYYY-MM-DD である． */
++export function isExcepted(
++  finding: Finding,
++  exceptions: Exception[],
++  today: string,
++): boolean {
++  return exceptions.some(
++    (e) =>
++      e.expires >= today &&
++      (finding.check_id === e.target ||
++        finding.check_id.endsWith(`.${e.target}`)) &&
++      (!e.path || finding.path.endsWith(e.path)),
++  );
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      target: { type: "string", default: "." },
++      exceptions: { type: "string", default: "ops/exceptions.yaml" },
++      config: {
++        type: "string",
++        multiple: true,
++        default: ["p/golang", "p/typescript", ".semgrep"],
++      },
++    },
++  });
++  mkdirSync(evidenceDir, { recursive: true });
++  const json = join(evidenceDir, "semgrep.json");
++  const scan = spawnSync(
++    "semgrep",
++    [
++      "scan",
++      "--metrics",
++      "off",
++      "--quiet",
++      ...values.config.flatMap((c) => ["--config", c]),
++      // 題材全体を調べるときは，ゲートのテストの入力を外す．
++      ...(values.target === "." ? ["--exclude", "fixtures"] : []),
++      "--json-output",
++      json,
++      "--sarif-output",
++      join(evidenceDir, "semgrep.sarif"),
++      values.target,
++    ],
++    { stdio: ["ignore", "ignore", "inherit"] },
++  );
++  if (scan.status !== 0) {
++    console.error("semgrep failed");
++    process.exit(2);
++  }
++
++  const today = new Date().toISOString().slice(0, 10);
++  const exceptions = readExceptions(values.exceptions);
++  const findings = (
++    JSON.parse(readFileSync(json, "utf8")) as { results: Finding[] }
++  ).results.filter((f) => !isExcepted(f, exceptions, today));
++  for (const f of findings) {
++    console.error(
++      `${f.path}:${f.start.line}: [${f.check_id}] ${f.extra.message}`,
++    );
++  }
++  if (findings.length > 0) {
++    process.exit(1);
++  }
++  console.log("sast: no findings");
++}
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+index f68991d..8b9feae 100644
+--- a/app/tools/ops/standards.ts
++++ b/app/tools/ops/standards.ts
+@@ -18,6 +18,7 @@ export type Exception = {
+   id: string;
+   target: string;
+   package?: string;
++  path?: string;
+   reason: string;
+   approver: string;
+   expires: string;

@@ -48,3 +48,4 @@ mise run iteration:solution 1
 | 1 | [シークレット検出](docs/iterations/01.md) | [解説](docs/iterations/01-answer.md) |
 | 2 | [依存関係の脆弱性検査と例外](docs/iterations/02.md) | [解説](docs/iterations/02-answer.md) |
 | 3 | [SBOMとライセンス，証跡の保管](docs/iterations/03.md) | [解説](docs/iterations/03-answer.md) |
+| 4 | [SAST](docs/iterations/04.md) | [解説](docs/iterations/04-answer.md) |

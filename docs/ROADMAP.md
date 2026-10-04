@@ -176,15 +176,19 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第4回 SAST
 
 - 要求：よく知られた種類の脆弱性(インジェクションなど)を，コードの段階で見つける(ISO/IEC 27001 A.8.28，NIST SSDF PW.7)．
-- 仕込む問題：`apps/api`にSQLインジェクション，`apps/web`にXSSがある．1件は誤検知である．
-- 使用例：`mise run gate:sast`がTypeScriptとGoを検査する．誤検知は例外の一覧に載せる．
+- 仕込む問題：APIのメモの検索にSQLインジェクション，Web画面の改行の表示にXSSがある．
+  キャッシュの判定に使うSHA-1と，TLSなしのHTTPサーバーも検出されるが，これらは誤検知である．
+- 使用例：`mise run gate:sast`が，レジストリのルールセットと自前のルールでTypeScriptとGoを検査する．誤検知は例外の一覧に載せる．
 - 追加するもの：
   - `ops/items.yaml`：`sast`．
-  - `mise run gate:sast`：Semgrepでの検査．第2回と同じ例外の一覧を読む．
-- ゲートのテスト：脆弱なコードのfixtureで失敗し，直したコードで通る．
-- 証跡：Semgrepの結果(SARIF)をS3に保管する．
-- 設計書の更新：手順書の例外の申請に，誤検知の判断基準を足す．
-- 既存のテストへの影響：なし．
+  - `.semgrep/rules.yml`：題材が使うライブラリ(pgx，Hono)に合わせた自前のルール．
+  - `tools/gates/sast.ts`と`mise run gate:sast`：Semgrepでの検査．第2回と同じ例外の一覧を読む．
+  - `ops/schema/exceptions.schema.json`：例外の場所を絞る`path`を足す．
+  - `.semgrepignore`：Semgrepの既定の除外(`tests/`)を置き換える．
+- ゲートのテスト：SQLを文字列で組み立てるコードと，`raw()`に変数を渡すコードで失敗し，直したコードで通る．例外に載った検出は外す．
+- 証跡：Semgrepの結果(JSONとSARIF)をS3に保管する．
+- 設計書の更新：手順書の例外の申請に，誤検知と判断する基準を足す．
+- 既存のテストへの影響：APIのテスト用のStoreに，検索の関数が加わる．
 - 学習者が行う道具の操作：検出されたコードを直す．誤検知を例外として申請する．
 
 ## 第5回 コンテナとIaCの設定検査
