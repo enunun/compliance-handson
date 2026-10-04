@@ -1,6 +1,8 @@
 {
 	"config": {
-		"default": true
+		"default": true,
+		// 表は折り返せないので，行の長さの検査から外す．
+		"MD013": { "tables": false }
 	},
 	"globs": [
 		"**/*.md"
