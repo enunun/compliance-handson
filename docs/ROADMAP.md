@@ -194,16 +194,24 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第5回 コンテナとIaCの設定検査
 
 - 要求：コンテナとクラウドの設定の誤りを，デプロイの前に見つける(ISO/IEC 27001 A.8.9)．
-- 仕込む問題：`apps/api`のDockerfileがrootで動く．`infra/`に公開設定のS3バケットがある．
+- 仕込む問題：APIのDockerfileが，サポートの終わったOS(alpine 3.20)の上でrootのまま動く．
+  `infra/`に，誰でも読める公開のポリシーを付けたバケットがある．
 - 使用例：`mise run gate:image`がビルドしたイメージを検査する．`mise run gate:config`がDockerfileとOpenTofuのコードを検査する．
+  これまでの回で作ったバケットとデータベースの設定の誤りも見つかる．
 - 追加するもの：
   - `ops/items.yaml`：`container-image`と`iac-config`．
-  - `mise run gate:image`と`mise run gate:config`：Trivyでの検査．
-- ゲートのテスト：rootで動くDockerfileと，公開設定のバケットのfixtureで失敗する．
+  - `apps/api/Dockerfile`：distrolessのイメージの上で，rootではない利用者で動かす．
+  - `tools/gates/image.ts`と`mise run gate:image`：脆弱性に加え，サポートの終わったOSでも失敗する．
+  - `tools/gates/config.ts`と`mise run gate:config`．
+  - `infra/kms.tf`：バケットを暗号化する鍵．バケットにはパブリックアクセスのブロックと暗号化を足し，データベースも暗号化する．
+- リファクタリング：Trivyを呼ぶ処理を`tools/gates/trivy.ts`にまとめ，`gate:sca`もそれを使う．
+  例外は，脆弱性と設定の誤りの両方の除外に使う．
+- ゲートのテスト：rootで動くDockerfileと公開のバケットで`gate:config`が失敗し，直した設定で通る．
+  サポートの終わったOSのイメージで`gate:image`が失敗し，サポート中のイメージで通る．
 - 証跡：検査結果をS3に保管する．
 - 設計書の更新：なし．
 - 既存のテストへの影響：なし．
-- 学習者が行う道具の操作：Dockerfileに実行ユーザーを足す．バケットの公開設定を外す．
+- 学習者が行う道具の操作：イメージをビルドする．Dockerfileに実行する利用者を足す．バケットの公開設定を外す．
 
 ## 第6回 ワークフローと成果物の完全性
 

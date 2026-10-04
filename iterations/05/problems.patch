@@ -1,0 +1,51 @@
+diff --git a/app/apps/api/.dockerignore b/app/apps/api/.dockerignore
+new file mode 100644
+index 0000000..4a246ec
+--- /dev/null
++++ b/app/apps/api/.dockerignore
+@@ -0,0 +1,2 @@
++Dockerfile
++.dockerignore
+diff --git a/app/apps/api/Dockerfile b/app/apps/api/Dockerfile
+new file mode 100644
+index 0000000..549e468
+--- /dev/null
++++ b/app/apps/api/Dockerfile
+@@ -0,0 +1,13 @@
++FROM golang:1.26-alpine AS build
++WORKDIR /src
++COPY go.mod go.sum ./
++# 社内のモジュールのプロキシを使うときは，--build-arg GOPROXY=... で渡す．
++ARG GOPROXY
++RUN go mod download
++COPY . .
++RUN CGO_ENABLED=0 go build -o /out/api ./cmd/api
++
++FROM alpine:3.20
++COPY --from=build /out/api /usr/local/bin/api
++EXPOSE 8080
++CMD ["api"]
+diff --git a/app/infra/exports.tf b/app/infra/exports.tf
+new file mode 100644
+index 0000000..acfc052
+--- /dev/null
++++ b/app/infra/exports.tf
+@@ -0,0 +1,18 @@
++# メモのエクスポートの置き場所．共有のリンクで誰でも取得できるようにする．
++resource "aws_s3_bucket" "exports" {
++  bucket = "app-exports"
++}
++
++resource "aws_s3_bucket_policy" "exports_public_read" {
++  bucket = aws_s3_bucket.exports.id
++  policy = jsonencode({
++    Version = "2012-10-17"
++    Statement = [{
++      Sid       = "PublicRead"
++      Effect    = "Allow"
++      Principal = "*"
++      Action    = "s3:GetObject"
++      Resource  = "${aws_s3_bucket.exports.arn}/*"
++    }]
++  })
++}
