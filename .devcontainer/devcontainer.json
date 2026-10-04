@@ -1,12 +1,31 @@
 {
-	"name": "PROJECT_NAME-dev",
+	"name": "compliance-handson",
 	"dockerComposeFile": "./compose.yml",
 	"service": "app",
 	"workspaceFolder": "/workspaces",
 	"shutdownAction": "stopCompose",
+	"features": {
+		// ホストのDockerをコンテナから使う(act，MiniStackのRDSとECS)．
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+			"moby": false
+		}
+	},
 	"customizations": {
 		"vscode": {
-			"extensions": ["anthropic.claude-code", "growthjack.claude-code-usage"]
+			"extensions": [
+				"anthropic.claude-code",
+				"growthjack.claude-code-usage",
+				"golang.go",
+				"biomejs.biome",
+				"vitest.explorer",
+				"opentofu.vscode-opentofu",
+				"redhat.vscode-yaml",
+				"github.vscode-github-actions",
+				"ms-azuretools.vscode-containers",
+				"bierner.markdown-mermaid",
+				"AquaSecurityOfficial.trivy-vulnerability-scanner",
+				"semgrep.semgrep"
+			]
 		}
 	},
 	"postCreateCommand": "mise run setup",

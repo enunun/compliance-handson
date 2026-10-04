@@ -3,8 +3,40 @@ services:
     build:
       context: ..
       dockerfile: .devcontainer/Dockerfile
-    container_name: PROJECT_NAME-container
+    container_name: compliance-handson-container
     volumes:
       - ..:/workspaces:cached
     working_dir: /workspaces
     command: ["sleep", "infinity"]
+    environment:
+      # AWSのSDK，CLI，OpenTofuのAWSプロバイダを，MiniStackに向ける．
+      AWS_ENDPOINT_URL: http://ministack:4566
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_REGION: ap-northeast-1
+      AWS_CONFIG_FILE: /workspaces/.devcontainer/aws-config
+    depends_on:
+      - ministack
+
+  # 本番の環境のAWSを模す．RDSとECSは，ホストのDockerで実際のコンテナとして動く．
+  # 作ったコンテナはこのComposeのネットワークにつながり，appから届く．
+  ministack:
+    image: ministackorg/ministack:1.5.21@sha256:7a30ff0670578e10528b5a9a21e795ef494f96bbc35691c9b0742ea35de71808
+    container_name: compliance-handson-ministack
+    environment:
+      CLOUDTRAIL_RECORDING: "1"
+      PERSIST_STATE: "1"
+      STATE_DIR: /data/state
+      S3_PERSIST: "1"
+      S3_DATA_DIR: /data/s3
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ministack-data:/data
+    networks:
+      default:
+        aliases:
+          # S3 Controlは，アカウントIDを付けたホスト名で接続する．
+          - 000000000000.ministack
+
+volumes:
+  ministack-data:

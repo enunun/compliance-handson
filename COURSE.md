@@ -180,6 +180,19 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
   再`plan`で差分が出続けるので，`lifecycle`の`ignore_changes`に`max_allocated_storage`を書く．
 - MiniStackをコンテナで動かすと，RDSのエンドポイントはDockerのブリッジのIPアドレス(例：`172.17.0.3:5432`)になる．アプリから届くネットワークに置く．
 - 動作が版ごとに変わりやすいので，版を固定する．
+- Composeでは，作業用のコンテナとMiniStackを同じネットワークに置く．
+  MiniStackは自分のネットワークを検出し，RDSやECSのコンテナもそこへつなぐので，作業用のコンテナから届く．
+- AWSのSDK，CLI，OpenTofuのAWSプロバイダは，`AWS_ENDPOINT_URL`だけでMiniStackに向く．
+  プロバイダに`endpoints`は書かない．
+- S3はパス形式でアクセスする．OpenTofuではプロバイダに`s3_use_path_style = true`を書き，AWS CLIでは`.devcontainer/aws-config`で設定する．
+- S3 Controlは`000000000000.ministack`のように，アカウントIDを付けたホスト名で接続する．
+  Composeで，MiniStackにこのホスト名をネットワークのエイリアスとして付ける．
+
+### mise
+
+- `mise.lock`の形式はmiseの版で変わる．Dev Containerのベースイメージのmiseは，`mise.lock`を作った版にそろえる．
+- Pythonで書かれた道具(semgrep，awscli)は，依存関係の固定を`.mise/locks/`に持つ．
+  `mise install --locked`には`mise.lock`と一緒にこのディレクトリも要るので，コミットしてイメージにコピーする．
 
 ### nektos/act(0.2.89で確認)
 

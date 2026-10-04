@@ -1,0 +1,4 @@
+# MiniStackはバケット名をホスト名に含める形式に対応しないので，パス形式でS3にアクセスする．
+[default]
+s3 =
+    addressing_style = path

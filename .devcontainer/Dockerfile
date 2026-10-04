@@ -1,6 +1,6 @@
 # miseの公式Debianイメージ．git，curl，CA証明書とmiseを含み，
 # PATHに/mise/shims，MISE_DATA_DIRに/miseが設定済み．
-FROM jdxcode/mise:2026.9.12-debian
+FROM jdxcode/mise:2026.10.0-debian
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
@@ -10,17 +10,14 @@ RUN apt-get update \
 	libatomic1 \
 	&& rm -rf /var/lib/apt/lists/*
 
-# ここにプロジェクト固有のシステムパッケージ・ツールチェーンのインストールを追加する
-# (例: ネイティブビルドのリンカ，画像/PDF変換ツール，各言語のランタイムなど)．
-
-# ツール(rtk，lefthookなど)はmise.tomlのとおりにイメージへ入れる．
-# 版を固定したい場合は，先に`mise lock`でmise.lockを作り，
-# COPYの対象に加えたうえで`mise install --locked`にする．
+# 講座の道具は，mise.tomlとmise.lockのとおりの版とチェックサムでイメージへ入れる．
 WORKDIR /tmp/mise-bootstrap
-COPY mise.toml ./
+COPY mise.toml mise.lock ./
+# Pythonで書かれた道具(semgrep，awscli)の依存関係の固定
+COPY .mise/locks ./.mise/locks
 RUN mise trust \
 	&& mise ls --current \
-	&& mise install --verbose
+	&& mise install --locked
 
 # rtkのhookを有効化する．
 RUN mkdir -p /root/.claude \
