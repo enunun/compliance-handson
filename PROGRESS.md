@@ -7,8 +7,8 @@
 
 | 回 | 状況 |
 | --- | --- |
-| 0〜9 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
-| 10〜14 | 未着手． |
+| 0〜10 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
+| 11〜14 | 未着手． |
 
 ## 作り方
 
@@ -35,6 +35,7 @@
 - Dockerのデーモンは`dockerd`を手で起動する．止まっていたら起動し直す．
 - Docker Hubの取得回数の制限を避けるため，`/etc/docker/daemon.json`にミラー(`mirror.gcr.io`)を設定した．
 - イメージのビルドでは，ホストのGoのモジュールのキャッシュを`python3 -m http.server 8099`で配り，`DOCKER_BUILD_ARGS="--network host --build-arg GOPROXY=http://127.0.0.1:8099"`を渡す．
+- `gate:eol`はendoflife.dateに問い合わせるので，ネットワークが要る．
 - `000000000000.localhost`を`/etc/hosts`に足した．MiniStackは`docker run --network chnet --network-alias 000000000000.ministack -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock`で起動する．
 - PostgreSQLのクライアントは，この検証環境のホストにある(16系)．Dev ContainerにはDockerfileで入れる．
 - AWS CLI(v1)は`AWS_REGION`を読まないので，`.devcontainer/aws-config`にリージョンを書いた．
@@ -42,7 +43,7 @@
 
 ## 次にやること
 
-第10回(更新と定期的な再検査)から始める．作業用のリポジトリの最新のタグは`sol9`である．
+第11回(権限の管理)から始める．作業用のリポジトリの最新のタグは`sol10`である．
 
 ## 第9回から第14回でやること
 

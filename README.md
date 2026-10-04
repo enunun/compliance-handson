@@ -54,3 +54,4 @@ mise run iteration:solution 1
 | 7 | [監視とアラート](docs/iterations/07.md) | [解説](docs/iterations/07-answer.md) |
 | 8 | [ログ設計](docs/iterations/08.md) | [解説](docs/iterations/08-answer.md) |
 | 9 | [バックアップとリストア](docs/iterations/09.md) | [解説](docs/iterations/09-answer.md) |
+| 10 | [更新と定期的な再検査](docs/iterations/10.md) | [解説](docs/iterations/10-answer.md) |

@@ -1,0 +1,791 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index bd640f4..5ab815e 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -132,6 +132,16 @@ jobs:
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:pinning
+ 
++  eol:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:eol
++
+   # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
+   # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
+   evidence:
+diff --git a/.github/workflows/rescan.yml b/.github/workflows/rescan.yml
+new file mode 100644
+index 0000000..51df3b1
+--- /dev/null
++++ b/.github/workflows/rescan.yml
+@@ -0,0 +1,44 @@
++name: rescan
++
++# リリース済みのイメージを，毎日，最新の脆弱性のデータで検査し直す．
++# リリースの後に公開された脆弱性や，サポートの終了に気づくためである．
++on:
++  schedule:
++    - cron: "37 21 * * *"
++  workflow_dispatch:
++
++permissions:
++  contents: read
++  packages: read # GHCRからイメージを取得する
++
++jobs:
++  rescan:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++        with:
++          fetch-depth: 0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - name: 最新のリリースのイメージを決める
++        id: image
++        run: |
++          tag="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
++          if [ -z "$tag" ]; then
++            echo "リリースがまだない．"
++            exit 0
++          fi
++          echo "ref=$(echo "ghcr.io/${GITHUB_REPOSITORY}/api:${tag}" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
++      - name: GHCRにログインする
++        if: steps.image.outputs.ref
++        run: echo "${{ secrets.GITHUB_TOKEN }}" | trivy registry login ghcr.io -u "${{ github.actor }}" --password-stdin
++      - name: 再検査する
++        if: steps.image.outputs.ref
++        run: mise run rescan:image --image "${{ steps.image.outputs.ref }}"
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-rescan
++          path: app/out/evidence/
+diff --git a/app/apps/api/Dockerfile b/app/apps/api/Dockerfile
+index 6b035da..cc7f8b1 100644
+--- a/app/apps/api/Dockerfile
++++ b/app/apps/api/Dockerfile
+@@ -1,4 +1,4 @@
+-FROM golang:1.25-alpine AS build
++FROM golang:1.26-alpine AS build
+ WORKDIR /src
+ COPY go.mod go.sum ./
+ # 社内のモジュールのプロキシを使うときは，--build-arg GOPROXY=... で渡す．
+diff --git a/app/apps/api/go.mod b/app/apps/api/go.mod
+index 8487d3a..df8a451 100644
+--- a/app/apps/api/go.mod
++++ b/app/apps/api/go.mod
+@@ -6,7 +6,7 @@ require (
+ 	github.com/aws/aws-sdk-go-v2 v1.47.1
+ 	github.com/aws/aws-sdk-go-v2/config v1.33.6
+ 	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.89.0
+-	github.com/golang-jwt/jwt/v4 v4.5.1
++	github.com/golang-jwt/jwt/v4 v4.5.2
+ 	github.com/jackc/pgx/v5 v5.11.0
+ 	github.com/prometheus/client_golang v1.24.1
+ 	golang.org/x/crypto v0.57.0
+diff --git a/app/apps/api/go.sum b/app/apps/api/go.sum
+index 17c5ceb..fddacd4 100644
+--- a/app/apps/api/go.sum
++++ b/app/apps/api/go.sum
+@@ -37,8 +37,8 @@ github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XL
+ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+-github.com/golang-jwt/jwt/v4 v4.5.1 h1:JdqV9zKUdtaa9gdPlywC3aeoEsR681PlKC+4F5gQgeo=
+-github.com/golang-jwt/jwt/v4 v4.5.1/go.mod h1:m21LjoU+eqJr34lmDMbreY2eSTRJ1cv77w39/MY0Ch0=
++github.com/golang-jwt/jwt/v4 v4.5.2 h1:YtQM7lnr8iZ+j5q71MGKkNw9Mn7AjHM68uc9g5fXeUI=
++github.com/golang-jwt/jwt/v4 v4.5.2/go.mod h1:m21LjoU+eqJr34lmDMbreY2eSTRJ1cv77w39/MY0Ch0=
+ github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
+ github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
+ github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
+diff --git a/app/mise.toml b/app/mise.toml
+index 88d83fc..2b412a9 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -90,6 +90,16 @@ run = "pnpm exec tsx tools/gates/pinning.ts"
+ description = "イメージの署名とprovenanceを検証し，証跡に残す(引数は <イメージ>@<ダイジェスト>)"
+ run = "tools/gates/verify-image.sh"
+ 
++[tasks."gate:eol"]
++description = "言語のランタイムとベースイメージのサポートの終了を検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/eol.ts"
++
++[tasks."rescan:image"]
++description = "リリース済みのイメージを，最新の脆弱性のデータで検査し直す(引数は --image <イメージ>)"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/image.ts"
++
+ [tasks.sbom]
+ description = "コンポーネントごとのSBOM(CycloneDX)を作る"
+ depends = ["install"]
+@@ -139,7 +149,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning", "gate:eol"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+diff --git a/app/ops/exceptions.yaml b/app/ops/exceptions.yaml
+index 72f6022..1521b60 100644
+--- a/app/ops/exceptions.yaml
++++ b/app/ops/exceptions.yaml
+@@ -3,15 +3,6 @@
+ # 申請の手順は runbooks/exception-request.md にある．
+ 
+ exceptions:
+-  - id: EXC-001
+-    target: CVE-2025-30204
+-    package: github.com/golang-jwt/jwt/v4
+-    reason: >-
+-      脆弱なのはトークンを解析する処理(ParseUnverified)で，APIはトークンに署名するだけで解析しない．
+-      到達しないことを確かめたので，次の定期更新で4.5.2以上に上げるまで受け入れる．
+-    approver: "@security-lead"
+-    expires: 2026-12-31
+-
+   - id: EXC-002
+     target: use-of-sha1
+     path: apps/api/internal/server/server.go
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 0239ab0..8bf2129 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -21,3 +21,6 @@
+ | audit-logging | 監査ログ | 運用管理 | ISO27001:A.8.15<br>SOC2:CC7.2 | ci.yml: evidence | 監査ログのロググループの設定(保管期間)と，運用テストの結果 | 定常(常時) | 自動 |  |
+ | backup | データベースのバックアップ | 基盤運用 | ISO27001:A.8.13<br>SOC2:A1.2 | backup.yml: backup | バックアップのファイル(バックアップの保管場所)と，運用の作業の記録 | 定常(standards.yaml の backup.interval_hours ごと) | 自動 | [手順書](runbooks/restore.md) |
+ | restore-test | リストアの訓練 | 基盤運用 | ISO27001:A.8.13<br>SOC2:A1.3 | backup.yml: backup | リストアの訓練の結果(元と戻した先の行数の比較)と，運用の作業の記録 | 定常(バックアップのたび) | 自動 | [手順書](runbooks/restore.md) |
++| dependency-updates | 依存関係の更新 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.19 | file: renovate.json | Renovateが作った更新のプルリクエストと，そのレビューの記録 | 定常(毎週)と非定常(脆弱性の修正が出たとき) | 自動 |  |
++| release-rescan | リリース済みのイメージの再検査 | 基盤運用 | ISO27001:A.8.8<br>SOC2:CC7.1 | rescan.yml: rescan | 再検査の結果(JSON)をartifactとして保存 | 定常(毎日) | 自動 |  |
++| eol-tracking | サポートの終了の管理 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.5.21 | ci.yml: eol | CIのeolジョブの結果 | 定常(変更ごと) | 自動 |  |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 1feeb10..398ac85 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -230,3 +230,35 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++
++  - id: dependency-updates
++    title: 依存関係の更新
++    category: 基盤運用
++    requirements: [ISO27001:A.8.8, ISO27001:A.8.19]
++    mechanisms:
++      - file: renovate.json
++    evidence: Renovateが作った更新のプルリクエストと，そのレビューの記録
++    timing: 定常(毎週)と非定常(脆弱性の修正が出たとき)
++    actor: 自動
++
++  - id: release-rescan
++    title: リリース済みのイメージの再検査
++    category: 基盤運用
++    requirements: [ISO27001:A.8.8, SOC2:CC7.1]
++    mechanisms:
++      - workflow: rescan.yml
++        job: rescan
++    evidence: 再検査の結果(JSON)をartifactとして保存
++    timing: 定常(毎日)
++    actor: 自動
++
++  - id: eol-tracking
++    title: サポートの終了の管理
++    category: 基盤運用
++    requirements: [ISO27001:A.8.8, ISO27001:A.5.21]
++    mechanisms:
++      - workflow: ci.yml
++        job: eol
++    evidence: CIのeolジョブの結果
++    timing: 定常(変更ごと)
++    actor: 自動
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index d77c346..9762b5f 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -43,3 +43,10 @@ mainに入るには，standards.yaml の `change.required_approvals` 人の承
+ | audit | セキュリティ責任者 | 監査や調査のときは，セキュリティ責任者に申請する |
+ 
+ 監査ログ(audit)は，記録された本人を含めて書き換えられないように，開発チームには書き込みの権限も与えない．
++
++## 更新の取り込み
++
++依存関係の更新は，Renovateが毎週月曜日の朝にまとめてプルリクエストにする．
++公開から3日たった版だけを取り込み，公開直後に問題が見つかった版を避ける．
++脆弱性の修正は，スケジュールを待たずにすぐプルリクエストにする．
++更新のプルリクエストも，ほかの変更と同じくCIとレビューを通してからmainに入れる．
+diff --git a/app/ops/schema/items.schema.json b/app/ops/schema/items.schema.json
+index 2c6b0dc..3cb00cf 100644
+--- a/app/ops/schema/items.schema.json
++++ b/app/ops/schema/items.schema.json
+@@ -123,6 +123,19 @@
+               "type": "string"
+             }
+           }
++        },
++        {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "file"
++          ],
++          "properties": {
++            "file": {
++              "description": "外部のサービス(Renovateなど)が読む設定ファイル(リポジトリの直下からのパス)",
++              "type": "string"
++            }
++          }
+         }
+       ]
+     },
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+index 86d5284..729459b 100644
+--- a/app/ops/schema/standards.schema.json
++++ b/app/ops/schema/standards.schema.json
+@@ -146,6 +146,21 @@
+           "minimum": 1
+         }
+       }
++    },
++    "eol": {
++      "description": "サポートの終了の基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "warn_days"
++      ],
++      "properties": {
++        "warn_days": {
++          "description": "サポートの終了までの日数がこれより短ければ，ゲートを失敗させる",
++          "type": "integer",
++          "minimum": 1
++        }
++      }
+     }
+   },
+   "required": [
+@@ -156,6 +171,7 @@
+     "evidence",
+     "monitoring",
+     "logs",
+-    "backup"
++    "backup",
++    "eol"
+   ]
+ }
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+index ec304b9..e0dec15 100644
+--- a/app/ops/standards.yaml
++++ b/app/ops/standards.yaml
+@@ -43,3 +43,7 @@ backup:
+   interval_hours: 24
+   # バックアップを消せない状態で保管する日数．
+   retention_days: 35
++
++eol:
++  # サポートの終了までの日数がこれより短い言語やベースイメージがあれば，ゲートを失敗させる．
++  warn_days: 90
+diff --git a/app/package.json b/app/package.json
+index 1b67577..7a989bd 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -15,6 +15,7 @@
+     "@types/node": "^26.6.4",
+     "ajv": "^8.20.0",
+     "ajv-formats": "^3.0.1",
++    "smol-toml": "^1.9.0",
+     "tsx": "^4.23.15",
+     "typescript": "^7.0.2",
+     "vitest": "^5.0.3",
+diff --git a/app/pnpm-lock.yaml b/app/pnpm-lock.yaml
+index eddc5e2..0e3dd8b 100644
+--- a/app/pnpm-lock.yaml
++++ b/app/pnpm-lock.yaml
+@@ -20,6 +20,9 @@ importers:
+       ajv-formats:
+         specifier: ^3.0.1
+         version: 3.0.1(ajv@8.20.0)
++      smol-toml:
++        specifier: ^1.9.0
++        version: 1.9.0
+       tsx:
+         specifier: ^4.23.15
+         version: 4.23.15
+@@ -717,6 +720,10 @@ packages:
+     engines: {node: ^20.19.0 || >=22.12.0}
+     hasBin: true
+ 
++  smol-toml@1.9.0:
++    resolution: {integrity: sha512-hpd+HLON7HdZXqYchMM/+LaTTbdK0AU3NngIJ4KVyWbY9bfQqdL9cD+4yf6dUoU2Ap4VsU0JkQi6FxAI1B2mXQ==}
++    engines: {node: '>= 18'}
++
+   source-map-js@1.2.2:
+     resolution: {integrity: sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==}
+     engines: {node: '>=0.10.0'}
+@@ -1270,6 +1277,8 @@ snapshots:
+       '@rolldown/binding-win32-arm64-msvc': 1.2.12
+       '@rolldown/binding-win32-x64-msvc': 1.2.12
+ 
++  smol-toml@1.9.0: {}
++
+   source-map-js@1.2.2: {}
+ 
+   std-env@4.3.0: {}
+diff --git a/app/tests/gates/eol.test.ts b/app/tests/gates/eol.test.ts
+new file mode 100644
+index 0000000..893523d
+--- /dev/null
++++ b/app/tests/gates/eol.test.ts
+@@ -0,0 +1,41 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/eol/<name> の mise.toml とDockerfileを，2026-10-04 の時点のデータで検査する． */
++function eol(name: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/eol.ts",
++    "--mise",
++    fixture("eol", name, "mise.toml"),
++    "--dockerfile",
++    fixture("eol", name, "Dockerfile"),
++    "--data",
++    fixture("eol", "data"),
++    "--today",
++    "2026-10-04",
++  ]);
++}
++
++describe("gate:eol", () => {
++  it("サポートが終わったベースイメージがあれば失敗する", () => {
++    const result = eol("eol-image");
++    expect(result.output).toContain(
++      "go 1.25 はサポートが終わっている(2026-08-19)",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("基準値の日数のうちにサポートが終わるランタイムがあれば失敗する", () => {
++    const result = eol("near-eol");
++    expect(result.output).toContain("nodejs 25 のサポートが2026-12-01に終わる");
++    expect(result.status).toBe(1);
++  });
++
++  it("サポートの終わりが遠いものだけなら通る", () => {
++    const result = eol("ok");
++    expect(result.output).toContain("none near the end of support");
++    expect(result.status).toBe(0);
++  });
++});
+diff --git a/app/tests/gates/fixtures/eol/data/go.json b/app/tests/gates/fixtures/eol/data/go.json
+new file mode 100644
+index 0000000..a30bda3
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/data/go.json
+@@ -0,0 +1,16 @@
++{
++  "result": {
++    "releases": [
++      {
++        "name": "1.26",
++        "isEol": false,
++        "eolFrom": null
++      },
++      {
++        "name": "1.25",
++        "isEol": true,
++        "eolFrom": "2026-08-19"
++      }
++    ]
++  }
++}
+\ No newline at end of file
+diff --git a/app/tests/gates/fixtures/eol/data/nodejs.json b/app/tests/gates/fixtures/eol/data/nodejs.json
+new file mode 100644
+index 0000000..ed5156e
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/data/nodejs.json
+@@ -0,0 +1,21 @@
++{
++  "result": {
++    "releases": [
++      {
++        "name": "26",
++        "isEol": false,
++        "eolFrom": "2029-04-30"
++      },
++      {
++        "name": "25",
++        "isEol": false,
++        "eolFrom": "2026-12-01"
++      },
++      {
++        "name": "24",
++        "isEol": false,
++        "eolFrom": "2028-04-30"
++      }
++    ]
++  }
++}
+\ No newline at end of file
+diff --git a/app/tests/gates/fixtures/eol/eol-image/Dockerfile b/app/tests/gates/fixtures/eol/eol-image/Dockerfile
+new file mode 100644
+index 0000000..a91069f
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/eol-image/Dockerfile
+@@ -0,0 +1,2 @@
++FROM golang:1.25-alpine AS build
++FROM gcr.io/distroless/static-debian12:nonroot
+diff --git a/app/tests/gates/fixtures/eol/eol-image/mise.toml b/app/tests/gates/fixtures/eol/eol-image/mise.toml
+new file mode 100644
+index 0000000..291548e
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/eol-image/mise.toml
+@@ -0,0 +1,3 @@
++[tools]
++node = "24.21.0"
++go = "1.26.8"
+diff --git a/app/tests/gates/fixtures/eol/near-eol/Dockerfile b/app/tests/gates/fixtures/eol/near-eol/Dockerfile
+new file mode 100644
+index 0000000..2c04c3d
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/near-eol/Dockerfile
+@@ -0,0 +1,2 @@
++FROM golang:1.26-alpine AS build
++FROM gcr.io/distroless/static-debian12:nonroot
+diff --git a/app/tests/gates/fixtures/eol/near-eol/mise.toml b/app/tests/gates/fixtures/eol/near-eol/mise.toml
+new file mode 100644
+index 0000000..17a2b5f
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/near-eol/mise.toml
+@@ -0,0 +1,3 @@
++[tools]
++node = "25.9.0"
++go = "1.26.8"
+diff --git a/app/tests/gates/fixtures/eol/ok/Dockerfile b/app/tests/gates/fixtures/eol/ok/Dockerfile
+new file mode 100644
+index 0000000..2c04c3d
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/ok/Dockerfile
+@@ -0,0 +1,2 @@
++FROM golang:1.26-alpine AS build
++FROM gcr.io/distroless/static-debian12:nonroot
+diff --git a/app/tests/gates/fixtures/eol/ok/mise.toml b/app/tests/gates/fixtures/eol/ok/mise.toml
+new file mode 100644
+index 0000000..291548e
+--- /dev/null
++++ b/app/tests/gates/fixtures/eol/ok/mise.toml
+@@ -0,0 +1,3 @@
++[tools]
++node = "24.21.0"
++go = "1.26.8"
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+index 5681672..32d2107 100644
+--- a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -17,3 +17,5 @@ logs:
+ backup:
+   interval_hours: 24
+   retention_days: 35
++eol:
++  warn_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+index d0c6460..2100c4c 100644
+--- a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -17,3 +17,5 @@ logs:
+ backup:
+   interval_hours: 24
+   retention_days: 35
++eol:
++  warn_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+index d0c6460..2100c4c 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+@@ -17,3 +17,5 @@ logs:
+ backup:
+   interval_hours: 24
+   retention_days: 35
++eol:
++  warn_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+index d0c6460..2100c4c 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+@@ -17,3 +17,5 @@ logs:
+ backup:
+   interval_hours: 24
+   retention_days: 35
++eol:
++  warn_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+index d0c6460..2100c4c 100644
+--- a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -17,3 +17,5 @@ logs:
+ backup:
+   interval_hours: 24
+   retention_days: 35
++eol:
++  warn_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+index d0c6460..2100c4c 100644
+--- a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -17,3 +17,5 @@ logs:
+ backup:
+   interval_hours: 24
+   retention_days: 35
++eol:
++  warn_days: 90
+diff --git a/app/tools/gates/eol.ts b/app/tools/gates/eol.ts
+new file mode 100644
+index 0000000..abe4208
+--- /dev/null
++++ b/app/tools/gates/eol.ts
+@@ -0,0 +1,129 @@
++// 言語のランタイムとベースイメージの，サポートの終了(EOL)を検査する．
++// サポートが終わったもの，基準値の日数のうちに終わるものがあれば失敗する．
++// サポートの終了日は endoflife.date のデータを使う．
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { parse } from "smol-toml";
++import { readStandards } from "../ops/standards.ts";
++
++/** 調べる対象．where は人が読むための場所である． */
++export type Target = { where: string; product: string; version: string };
++
++/** endoflife.date の版ごとのデータ． */
++export type Release = { name: string; isEol: boolean; eolFrom: string | null };
++
++// mise.toml の道具の名前と，Dockerfileのイメージの名前を，endoflife.date の製品の名前に対応させる．
++const toolProducts: Record<string, string> = { node: "nodejs", go: "go" };
++const imageProducts: Record<string, string> = { node: "nodejs", golang: "go" };
++
++/** mise.toml とDockerfileから，調べる対象を集める． */
++export function collectTargets(
++  miseToml: string,
++  dockerfiles: Record<string, string>,
++): Target[] {
++  const tools = (parse(miseToml).tools ?? {}) as Record<string, string>;
++  const fromTools = Object.entries(tools).flatMap(([tool, version]) =>
++    toolProducts[tool]
++      ? [{ where: `mise.toml: ${tool}`, product: toolProducts[tool], version }]
++      : [],
++  );
++  const fromImages = Object.entries(dockerfiles).flatMap(([file, text]) =>
++    [...text.matchAll(/^FROM\s+(\S+):(\d[\w.]*)/gm)].flatMap(
++      ([, image, tag]) => {
++        const product = imageProducts[image];
++        // タグの先頭の版(1.26-alpine なら 1.26)を使う．
++        const version = tag.match(/^\d+(\.\d+)*/)?.[0];
++        return product && version
++          ? [{ where: `${file}: ${image}:${tag}`, product, version }]
++          : [];
++      },
++    ),
++  );
++  return [...fromTools, ...fromImages];
++}
++
++/** サポートの終了の問題を返す．today は YYYY-MM-DD である． */
++export function checkEol(
++  targets: Target[],
++  releases: Record<string, Release[]>,
++  today: string,
++  warnDays: number,
++): string[] {
++  const limit = new Date(Date.parse(today) + warnDays * 24 * 60 * 60 * 1000)
++    .toISOString()
++    .slice(0, 10);
++  return targets.flatMap((t) => {
++    const release = (releases[t.product] ?? []).find(
++      (r) => t.version === r.name || t.version.startsWith(`${r.name}.`),
++    );
++    if (!release) {
++      return [`${t.where}: ${t.product} ${t.version} のサポートの情報がない`];
++    }
++    if (release.isEol) {
++      return [
++        `${t.where}: ${t.product} ${release.name} はサポートが終わっている(${release.eolFrom})`,
++      ];
++    }
++    if (release.eolFrom && release.eolFrom <= limit) {
++      return [
++        `${t.where}: ${t.product} ${release.name} のサポートが${release.eolFrom}に終わる`,
++      ];
++    }
++    return [];
++  });
++}
++
++/** endoflife.date から製品の版ごとのデータを得る．data があれば，そのディレクトリのJSONを読む． */
++async function loadReleases(products: string[], data?: string) {
++  const entries = await Promise.all(
++    products.map(async (p) => {
++      const json = data
++        ? JSON.parse(readFileSync(join(data, `${p}.json`), "utf8"))
++        : await (
++            await fetch(`https://endoflife.date/api/v1/products/${p}/`)
++          ).json();
++      return [p, json.result.releases as Release[]] as const;
++    }),
++  );
++  return Object.fromEntries(entries);
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      mise: { type: "string", default: "../mise.toml" },
++      dockerfile: {
++        type: "string",
++        multiple: true,
++        default: ["apps/api/Dockerfile"],
++      },
++      data: { type: "string" },
++      ops: { type: "string", default: "ops" },
++      today: { type: "string", default: new Date().toISOString().slice(0, 10) },
++    },
++  });
++  const targets = collectTargets(
++    readFileSync(values.mise, "utf8"),
++    Object.fromEntries(
++      values.dockerfile.map((f) => [f, readFileSync(f, "utf8")]),
++    ),
++  );
++  const releases = await loadReleases(
++    [...new Set(targets.map((t) => t.product))],
++    values.data,
++  );
++  const problems = checkEol(
++    targets,
++    releases,
++    values.today,
++    readStandards(values.ops).eol.warn_days,
++  );
++  for (const problem of problems) {
++    console.error(problem);
++  }
++  if (problems.length > 0) {
++    process.exit(1);
++  }
++  console.log(`eol: ${targets.length} targets, none near the end of support`);
++}
+diff --git a/app/tools/ops/items.ts b/app/tools/ops/items.ts
+index b2f396c..007a06f 100644
+--- a/app/tools/ops/items.ts
++++ b/app/tools/ops/items.ts
+@@ -1,8 +1,11 @@
+ import { readFileSync } from "node:fs";
+ import { parse } from "yaml";
+ 
+-/** 仕組み．ワークフローのジョブか，アラートのルールである． */
+-export type Mechanism = { workflow: string; job: string } | { alert: string };
++/** 仕組み．ワークフローのジョブ，アラートのルール，外部のサービスが読む設定ファイルのどれかである． */
++export type Mechanism =
++  | { workflow: string; job: string }
++  | { alert: string }
++  | { file: string };
+ 
+ /** 運用項目がログで答える問い． */
+ export type LogRecord = {
+diff --git a/app/tools/ops/render.ts b/app/tools/ops/render.ts
+index 8cebd47..abd9f96 100644
+--- a/app/tools/ops/render.ts
++++ b/app/tools/ops/render.ts
+@@ -36,7 +36,9 @@ export function render({ items }: ItemsFile): string {
+ }
+ 
+ function describeMechanism(m: Mechanism): string {
+-  return "alert" in m ? `alert: ${m.alert}` : `${m.workflow}: ${m.job}`;
++  if ("alert" in m) return `alert: ${m.alert}`;
++  if ("file" in m) return `file: ${m.file}`;
++  return `${m.workflow}: ${m.job}`;
+ }
+ 
+ /** アラートのルールのYAMLを作る． */
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+index 774d259..37156a5 100644
+--- a/app/tools/ops/standards.ts
++++ b/app/tools/ops/standards.ts
+@@ -14,6 +14,7 @@ export type Standards = {
+   monitoring: { error_rate_threshold: number; error_rate_for: string };
+   logs: { retention_days: Record<string, number> };
+   backup: { interval_hours: number; retention_days: number };
++  eol: { warn_days: number };
+ };
+ 
+ /** 例外．ops/schema/exceptions.schema.json の形に合う． */
+diff --git a/app/tools/ops/verify.ts b/app/tools/ops/verify.ts
+index 666ad9e..38b3fef 100644
+--- a/app/tools/ops/verify.ts
++++ b/app/tools/ops/verify.ts
+@@ -1,5 +1,5 @@
+ import { existsSync, readFileSync } from "node:fs";
+-import { join } from "node:path";
++import { join, resolve } from "node:path";
+ import { parseArgs } from "node:util";
+ import { Ajv2020 } from "ajv/dist/2020.js";
+ import addFormats from "ajv-formats";
+@@ -66,6 +66,17 @@ export function verify(options: VerifyOptions): Problem[] {
+     : [];
+   for (const item of items.items) {
+     for (const mechanism of item.mechanisms) {
++      if ("file" in mechanism) {
++        // 設定ファイルの場所は，リポジトリの直下(ワークフローの2つ上)からのパスである．
++        const root = resolve(options.workflowsDir, "../..");
++        if (!existsSync(join(root, mechanism.file))) {
++          problems.push({
++            file: itemsFile,
++            message: `${item.id}: 設定ファイル ${mechanism.file} がない`,
++          });
++        }
++        continue;
++      }
+       if ("alert" in mechanism) {
+         if (!alerts.includes(mechanism.alert)) {
+           problems.push({
+diff --git a/renovate.json b/renovate.json
+new file mode 100644
+index 0000000..7da2d96
+--- /dev/null
++++ b/renovate.json
+@@ -0,0 +1,25 @@
++{
++  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
++  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
++  "timezone": "Asia/Tokyo",
++  "schedule": ["before 9am on monday"],
++  "minimumReleaseAge": "3 days",
++  "labels": ["dependencies"],
++  "packageRules": [
++    {
++      "description": "パッチとマイナーの更新は，まとめて1つのプルリクエストにする",
++      "matchUpdateTypes": ["minor", "patch"],
++      "groupName": "minor and patch updates"
++    },
++    {
++      "description": "GitHub Actionsは，ハッシュとコメントの版を一緒に更新する",
++      "matchManagers": ["github-actions"],
++      "groupName": "github actions"
++    }
++  ],
++  "vulnerabilityAlerts": {
++    "description": "脆弱性の修正は，スケジュールを待たずにすぐ出す",
++    "schedule": ["at any time"],
++    "labels": ["security"]
++  }
++}

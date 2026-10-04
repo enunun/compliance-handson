@@ -302,19 +302,21 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第10回 更新と定期的な再検査
 
 - 要求：依存関係とベースイメージを最新に保つ．リリース後に公開された脆弱性を見つける．サポートが終わる部品を使い続けない(ISO/IEC 27001 A.8.8，A.8.19)．
-- 仕込む問題：ベースイメージとGoのバージョンが古い．Node.jsのバージョンがサポート終了に近い．
-- 使用例：Renovateが更新のプルリクエストを作る．定期ジョブが保管済みのSBOMを再検査する．`mise run gate:eol`がサポート終了の近い部品を検出する．
+- 仕込む問題：APIのDockerfileのビルド用のイメージが，サポートの終わったGo(1.25)である．
+- 使用例：Renovateが更新のプルリクエストを作る．定期ジョブが，リリース済みのイメージを最新の脆弱性のデータで検査し直す．
+  `mise run gate:eol`が，サポートが終わった，または終わりが近いランタイムとベースイメージを検出する．
 - 追加するもの：
   - `ops/standards.yaml`：`eol.warn_days`．
-  - `ops/items.yaml`：`dependency-updates`，`sbom-rescan`，`eol-tracking`．
-  - `renovate.json`：更新の方針．
-  - `.github/workflows/rescan.yml`：保管済みのSBOMの再検査．
-  - `tools/ops/eol.ts`と`mise run gate:eol`．
-- ゲートのテスト：サポート終了が近いバージョンを書いた`mise.toml`のfixtureで失敗する．
-- 証跡：再検査の結果をS3に保管する．Renovateのプルリクエストの記録．
+  - `ops/items.yaml`：`dependency-updates`，`release-rescan`，`eol-tracking`．仕組みに，外部のサービスが読む設定ファイルも書けるようにする．
+  - `renovate.json`：更新の方針．GitHub Actionsのハッシュも更新する．
+  - `.github/workflows/rescan.yml`と`mise run rescan:image`：リリース済みのイメージの再検査．
+  - `tools/gates/eol.ts`と`mise run gate:eol`：`mise.toml`とDockerfileの版を，endoflife.dateのデータと照らし合わせる．
+- 依存関係の更新：第2回の例外(golang-jwt)を，直った版に上げて閉じる．
+- ゲートのテスト：サポートが終わったベースイメージと，基準値の日数のうちにサポートが終わるランタイムで失敗する．
+- 証跡：再検査の結果をartifactに残す．Renovateのプルリクエストの記録．
 - 設計書の更新：運用方針に，更新を取り込む方針を書く．
-- 既存のテストへの影響：なし．
-- 学習者が行う道具の操作：Renovateをリポジトリに導入する．GitHubの機能なので，この回はGitHubで確かめる．
+- 既存のテストへの影響：`ops:verify`のfixtureの基準値に，サポートの終了の基準を足す．
+- 学習者が行う道具の操作：Renovate(GitHubのアプリ)をリポジトリに入れる．GitHubの機能なので，この回はGitHubで確かめる．
 
 ## 第11回 権限の管理
 
