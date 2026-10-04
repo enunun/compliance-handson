@@ -1,8 +1,8 @@
 {
 	"config": {
 		"default": true,
-		// 表は折り返せないので，行の長さの検査から外す．
-		"MD013": { "tables": false }
+		// 表とコードブロックは折り返せないので，行の長さの検査から外す．
+		"MD013": { "tables": false, "code_blocks": false }
 	},
 	"globs": [
 		"**/*.md"
@@ -10,6 +10,7 @@
 	"ignores": [
 		"**/node_modules/**",
 		"**/.terraform/**",
+		"app/**",
 		"CLAUDE.md",
 		"**/.claude/**"
 	]

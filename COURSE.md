@@ -90,7 +90,8 @@ CIはGitHub Actionsで動かす．
 学習者は，各回の始めに`mise run iteration:start N`で仕込みを自分のコードに当てる．
 遅れたときや行き詰まったときは，`mise run iteration:solution N`で解答を当てる．
 `mise run iterations:verify`は，一時的なコピーに第0回からパッチを順に当て，各回の解答で`mise run check`が通ることを確かめる．
-各回の演習の手順と解説は，`docs/iterations/NN.md`に書く．
+各回の演習の手順は`docs/iterations/NN.md`に，解説は`docs/iterations/NN-answer.md`に書く．
+学習者は，各回のテストリストを`app/TESTLIST.md`に書く．解答のテストリストは解説に載せる．
 
 ## 各回の範囲
 
@@ -193,6 +194,12 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 - S3はパス形式でアクセスする．OpenTofuではプロバイダに`s3_use_path_style = true`を書き，AWS CLIでは`.devcontainer/aws-config`で設定する．
 - S3 Controlは`000000000000.ministack`のように，アカウントIDを付けたホスト名で接続する．
   Composeで，MiniStackにこのホスト名をネットワークのエイリアスとして付ける．
+
+### 題材の道具
+
+- `tools/ops/`のスクリプトは，tsxで実行する．
+  コマンドとして実行されたかどうかは`import.meta.main`で判定できる(Node.js 24)．
+- actで`jdx/mise-action`を使うワークフローを動かせる．道具の取得に時間がかかるので，初回は数分かかる．
 
 ### pnpm
 

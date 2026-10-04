@@ -54,3 +54,16 @@ run = "mise -C app run install"
 [tasks.check]
 description = "整形の検査，リント，単体テストなどをまとめて実行する(CIと同じ)"
 depends = ["lint", "test"]
+
+[tasks."iteration:start"]
+description = "第N回で検出する問題を，自分のコードに当てる(例：mise run iteration:start 1)"
+run = "scripts/iteration.sh start"
+
+[tasks."iteration:solution"]
+description = "第N回の解答を，自分のコードに当てる(例：mise run iteration:solution 1)"
+run = "scripts/iteration.sh solution"
+
+[tasks."iterations:verify"]
+description = "各回のパッチを順に当て，すべての解答で題材の検査が通ることを確かめる"
+run = "scripts/verify-iterations.sh"
+
