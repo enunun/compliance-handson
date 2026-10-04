@@ -29,19 +29,17 @@ description = "依存パッケージをインストールする"
 run = "pnpm install --frozen-lockfile"
 
 [tasks.fmt]
-description = "コードと文書を整形する"
+description = "文書を整形する(textlintとmarkdownlintで直せるものを直す)"
 depends = ["install"]
-run = "echo 'TODO: add your formatter'"
+run = [
+  "git ls-files '*.md' -z | xargs -0 -r pnpm exec textlint --fix",
+  "git ls-files '*.md' -z | xargs -0 -r pnpm exec markdownlint-cli2 --fix",
+]
 
 [tasks.lint]
 description = "すべてのリントを実行する"
 depends = ["install"]
 run = "pnpm lint"
-
-[tasks.test]
-description = "単体テストを実行する"
-depends = ["install"]
-run = "echo 'TODO: add your test command'"
 
 [tasks.hooks]
 description = "Gitのフック(コミット時の検査)を設定する"
@@ -53,8 +51,8 @@ depends = ["install", "hooks"]
 run = "mise -C app run install"
 
 [tasks.check]
-description = "整形の検査，リント，単体テストなどをまとめて実行する(CIと同じ)"
-depends = ["lint", "test"]
+description = "文書を検査する(題材の検査は mise -C app run check)"
+depends = ["lint"]
 
 [tasks."iteration:start"]
 description = "第N回で検出する問題を，自分のコードに当てる(例：mise run iteration:start 1)"

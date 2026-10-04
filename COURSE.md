@@ -1,7 +1,7 @@
-# 講座計画：SaaSのコンプライアンスを仕組みで満たす
+# 講座の設計：SaaSのコンプライアンスを仕組みで満たす
 
-教材を作る人とエージェントのための計画書．
-講座の前提，題材，設計書，開発環境と，各回の範囲を定める．
+教材を作り，保守する人のための文書．
+講座の前提，題材，設計書，開発環境，各回の範囲と，教材を保守するときの落とし穴をまとめる．
 学習者向けの各回の要件は`docs/ROADMAP.md`に書く．
 
 ## 対象者とゴール
@@ -31,7 +31,7 @@
 
 - 連続講座で，全15回(第0回から第14回)．1回は90分で，自分のリポジトリへの適用までをその回の中で行う．
 - 教材は日本語で書く．
-- 教材に載せる出力は，実際に実行した結果を写す．`docs/ROADMAP.md`の使用例の出力は形を示す例で，各回を作るときに実際の出力に置き換える．
+- 教材に載せる出力は，実際に実行した結果を写す．
 - 各回は，1つの運用項目を，仕組みと証跡まで作る．
 - テスト駆動で進める．各回の最初に，「だめな入力では仕組みが失敗を報告し，正しい入力では通る」ことを確かめるテストを書き，その後に仕組みを作る．運用の項目では，アラートのルールのテスト，リストアしたデータの検証，ログの出力の検証などがこのテストにあたる．
 
@@ -124,7 +124,7 @@ CIはGitHub Actionsで動かす．
 | 運用方針(`ops/policy.md`) | 体制と役割，エスカレーションの経路．YAMLで表せないことだけを書く． |
 
 基準値と例外は，CODEOWNERSでセキュリティ責任者の承認を要するようにし，運用項目は開発チームが承認する．
-第13回では，`standards.yaml`を組織で共通のリポジトリへ移す．
+第13回では，conftestのルール(`policy/`)とゲートのジョブ(`gates.yml`)を，組織のほかのリポジトリからも使える形にする．
 
 基準値はYAMLにだけ書き，ゲートはYAMLを読んで判定する．
 例えば，期限を過ぎた例外が残っているとCIが失敗する．
@@ -144,8 +144,8 @@ CIはGitHub Actionsで動かす．
 - IaC：OpenTofu．
 - 本番の環境：AWSのAPIはMiniStackで模す．監視はPrometheus，Alertmanager，Grafanaで行う．どちらもDev Containerの中でコンテナとして動かす．
 - 検査と監視の道具：Trivy，gitleaks，Semgrep，cosign，conftest，promtool，amtool．
-- CI：GitHub Actions．MiniStackはジョブのサービスコンテナとして起動し，`tofu apply`とアプリの結合テストを流す．
-- ワークフローの手元での確認：nektos/act．`mise run ci`で実行する．OIDCトークンとGitHub本体の機能(ブランチ保護，必須チェック，CODEOWNERS，Renovate)はactでは動かないので，それらを扱う第0，6，10，11回はGitHubにpushして確かめる．
+- CI：GitHub Actions．MiniStackはジョブのサービスコンテナとして起動し，`tofu apply`と運用テストを流す．
+- ワークフローの手元での確認：nektos/act．`mise run ci`で実行する．OIDCトークンとGitHub本体の機能(ブランチ保護，必須チェック，CODEOWNERS，Renovate)はactでは動かないので，それらを扱う第0，6，10，11，13，14回はGitHubにpushして確かめる．
 - スクリプトとゲートのテスト：TypeScriptとVitestで書く．YAMLの検証にはAjvを使う．アラートのルールはpromtoolでテストする．
 
 道具の版は，LTSや安定版を優先して選ぶ．
@@ -243,8 +243,9 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 
 - Goは使わないパッケージをバイナリに含めないので，`go.mod`にある依存関係の脆弱性が，イメージの検査では見つからないことがある．
 - Trivyは，サポートの終わったOSを警告するだけで失敗にしない．`gate:image`は結果のJSONの`Metadata.OS.EOSL`を見て失敗にする．
-- この検証環境では，Docker Hubの取得回数の制限を避けるため，Dockerにミラー(`mirror.gcr.io`)を設定した．
-  ビルド中のコンテナがプロキシの証明書を信頼しないので，ホストのGoのモジュールのキャッシュをHTTPで配り，`DOCKER_BUILD_ARGS`で`GOPROXY`を渡した．
+- Docker Hubの取得回数の制限に当たるときは，Dockerにミラー(`mirror.gcr.io`など)を設定する．
+- プロキシを通す環境では，ビルド中のコンテナがプロキシの証明書を信頼しないことがある．
+  `mise run image:build`は`DOCKER_BUILD_ARGS`をビルドの引数に足すので，`GOPROXY`などを渡して回避できる．
 
 ### pnpm
 
@@ -259,7 +260,7 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 - 証跡を保管したバケットは，Object Lockのため保管期間の間は消せない．`mise run down`も失敗する．
   環境を初期化するときは，MiniStackのデータのボリュームごと消す(Dev Containerなら`compose.yml`の`ministack-data`)．
 - OpenTofuの適用が途中で失敗すると，バケットだけが残り，次の適用で作り直そうとして失敗することがある．同じく環境を初期化する．
-- GitHubのランナーやこの検証環境では`000000000000.localhost`が名前解決できない．CIのジョブでは`/etc/hosts`に足す．
+- GitHubのランナーでは`000000000000.localhost`が名前解決できない．CIのジョブでは`/etc/hosts`に足す．
 
 ### mise
 
