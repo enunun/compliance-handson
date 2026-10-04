@@ -84,7 +84,7 @@ CIはGitHub Actionsで動かす．
 
 各回の仕込みと解答は，`iterations/NN/`のパッチで持つ．
 
-- `problems.patch`：第N回で検出する問題の仕込み．第0回にはない．
+- `problems.patch`：第N回で検出する問題の仕込み．仕込みのない回(第0，6，7，9，14回)にはない．
 - `solution.patch`：第N回の解答．第N-1回の解答に仕込みを当てた状態との差分．
 
 学習者は，各回の始めに`mise run iteration:start N`で仕込みを自分のコードに当てる．
@@ -108,9 +108,9 @@ CIはGitHub Actionsで動かす．
 | 8 | 運用項目からのログ設計，構造化ログ，監査ログ | CloudWatch Logs | ログ管理(4.6節) |
 | 9 | バックアップとリストア，リストアの訓練 | pg_dump，S3，RDS | バックアップ/リストア運用(4.4節) |
 | 10 | 依存関係とベースイメージの更新，定期的な再検査，EOLの管理 | Renovate，Trivy | パッチ運用(4.2節)，ジョブ/スクリプト運用(4.3節)，保守契約管理(4.8節) |
-| 11 | クラウドとGitHubの権限の検査と棚卸し，シークレットのローテーション | Trivy，IAMの認証情報レポート，CloudTrail | 運用アカウント管理(4.7節)，利用者の管理(3.2節) |
-| 12 | 対応期限(SLA)，VEXでのトリアージ，エスカレーション | OpenVEX | 運用維持管理(5.2節)，運用情報統制(5.3節) |
-| 13 | 共通ポリシーとreusable workflowによる展開，デプロイ前の署名検証 | conftest | 運用維持管理(5.2節) |
+| 11 | IAMのポリシーの検査，OIDCの信頼ポリシー，権限の棚卸し，データベースのパスワードの交換 | 自前のゲート(TypeScript)，IAMの認証情報レポート，CloudTrail | 運用アカウント管理(4.7節)，利用者の管理(3.2節) |
+| 12 | 対応期限(SLA)，VEXでのトリアージ，エスカレーション | OpenVEX，Trivy，Alertmanager | 運用維持管理(5.2節)，運用情報統制(5.3節) |
+| 13 | 共通ポリシーとreusable workflowによる展開，デプロイ前の署名検証 | conftest，cosign，ECS | 運用維持管理(5.2節) |
 | 14 | 証跡の集約，月次報告，セキュリティチェックシートへの回答 | OpenSSF Scorecard | 定期報告(5.4節) |
 
 ## 設計書
@@ -185,6 +185,8 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
   CloudWatch Logs，ECR，Secrets Manager．
   プロバイダの`endpoints`で各サービスを`http://localhost:4566`に向け，`s3_use_path_style = true`にする．
 - ECSのサービスは，タスク定義のイメージで実際のコンテナを起動する．
+- AWSプロバイダは，ネットワークの設定のないECSのサービスを作ると，MiniStackの応答を読むところで落ちる(`Plugin did not respond`)．
+  Fargateのサービスにし，VPC，サブネット，セキュリティグループを作ってネットワークの設定を書く．
 - RDSは`max_allocated_storage`を指定しないと`allocated_storage`と同じ値を返し，変更も反映しない．
   再`plan`で差分が出続けるので，`lifecycle`の`ignore_changes`に`max_allocated_storage`を書く．
 - MiniStackをコンテナで動かすと，RDSのエンドポイントはDockerのブリッジのIPアドレス(例：`172.17.0.3:5432`)になる．アプリから届くネットワークに置く．
@@ -204,6 +206,12 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
   コマンドとして実行されたかどうかは`import.meta.main`で判定できる(Node.js 24)．
 - actで`jdx/mise-action`を使うワークフローを動かせる．道具の取得に時間がかかるので，初回は数分かかる．
 
+### 運用テスト
+
+- 運用テストは，どれも同じ本番の環境(MiniStackの上の環境)を使う．
+  パスワードの交換とバックアップが同時に動くと失敗するので，`vitest.config.ts`の`ops`で`fileParallelism: false`にする．
+- 月次報告のテストは，ほかのテストの証跡と混ざらないよう，先の月(2099年1月)の日付で証跡を置く．
+
 ### gitleaks
 
 - ゲートのテストのファイルも，確かめるためにキーを含む．許可リストは，fixtureだけでなく`app/tests/gates/`全体を対象にする．
@@ -213,11 +221,13 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 
 ### Trivyと例外
 
-- 解答の例外には期限(第2回の`EXC-001`は2026-12-31)がある．期限を過ぎてから`mise run iterations:verify`を実行すると，`gate:exceptions`と`gate:sca`が失敗する．
+- 解答の例外には期限(2026-12-31)がある．期限を過ぎてから`mise run iterations:verify`を実行すると，`gate:exceptions`と`gate:sca`が失敗する．
   教材を見直すときは，期限と，期限を確かめるゲートのテストの日付を合わせて更新する．
 - 脆弱性のデータベースは日々更新されるので，題材の依存関係に新しい脆弱性が見つかると，前の回の解答でも`gate:sca`が失敗するようになる．
   そのときは，依存関係を上げるか，題材の仕込みとして扱うかを決める．
 - `mise run check`はタスクを並列に動かす．ゲートのテストと本物のゲートが同じファイルに書かないよう，証跡の置き場所を`EVIDENCE_DIR`で分ける．
+- `trivy config`は`--vex`を受け付けない．OpenVEXの文書は，脆弱性の検査(`fs`，`image`)にだけ渡す．
+- OpenVEXの製品に版のないpURL(`pkg:npm/ip`)を書くと，Trivyはすべての版に当てる．
 
 ### Semgrep
 
@@ -270,4 +280,6 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 - ジョブはホストのネットワークで動くので，サービスには`localhost:4566`で届く．
 - `ACTIONS_ID_TOKEN_REQUEST_URL`が設定されないので，OIDCトークンを使う処理は動かない．
 - ホストの`GITHUB_TOKEN`が無効だと，actionの取得で認証エラーになる．
+  `env -u GITHUB_TOKEN -u GH_TOKEN act ...`のように外して動かす．
+- プロキシを通す環境では，`--env HTTPS_PROXY=...`と，CAの証明書(`--container-options`でマウントし，`SSL_CERT_FILE`などで指定)を渡す．
 - ランナーのイメージ(`ghcr.io/catthehacker/ubuntu:act-24.04`)が大きいので，Dev Containerのディスク容量に注意する．

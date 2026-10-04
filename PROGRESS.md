@@ -92,6 +92,6 @@
 
 ## 最後にやること
 
-- `COURSE.md`の「落とし穴」を見直す．
-- すべての回で`mise run iterations:verify`を通す．
-- 全体を`finalize-artifacts`の手順で読み直す．
+- [x] `COURSE.md`の「落とし穴」を見直す(第12〜14回で見つけたことを足した)．
+- [ ] すべての回で`mise run iterations:verify`を通す(実行中)．
+- [x] 全体を`finalize-artifacts`の手順で読み直す．
