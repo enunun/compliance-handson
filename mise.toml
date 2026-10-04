@@ -49,6 +49,7 @@ run = "lefthook install"
 [tasks.setup]
 description = "開発環境を整える(依存パッケージ，Gitのフックなど)"
 depends = ["install", "hooks"]
+run = "mise -C app run install"
 
 [tasks.check]
 description = "整形の検査，リント，単体テストなどをまとめて実行する(CIと同じ)"

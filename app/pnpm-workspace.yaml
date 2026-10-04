@@ -1,0 +1,7 @@
+packages:
+  - apps/web
+  - packages/shared
+
+# 依存パッケージのビルドスクリプト．esbuildは実行ファイルを別のパッケージで配るので，実行しない．
+allowBuilds:
+  esbuild: false

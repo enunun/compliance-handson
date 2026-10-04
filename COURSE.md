@@ -188,6 +188,14 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 - S3 Controlは`000000000000.ministack`のように，アカウントIDを付けたホスト名で接続する．
   Composeで，MiniStackにこのホスト名をネットワークのエイリアスとして付ける．
 
+### pnpm
+
+- pnpm 12は，依存パッケージのビルドスクリプトを許可するかどうかを決めないと`pnpm install`が失敗する．
+  `pnpm-workspace.yaml`の`allowBuilds`で，パッケージごとに許可するかを書く．
+- pnpm 12は，公開から1日未満の版をロックファイルに入れると`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`で失敗する．
+  古いpnpmで作ったロックファイルは，`pnpm clean --lockfile`の後に`pnpm install`で作り直す．
+- markdownlintは`**/*.md`を対象にするので，`.terraform/`の中のプロバイダのMarkdownを対象から外す．
+
 ### mise
 
 - `mise.lock`の形式はmiseの版で変わる．Dev Containerのベースイメージのmiseは，`mise.lock`を作った版にそろえる．

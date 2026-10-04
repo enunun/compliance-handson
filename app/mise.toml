@@ -1,0 +1,69 @@
+# 題材のタスク．道具の版はリポジトリ直下のmise.tomlで固定している．
+
+[tasks.install]
+description = "依存パッケージを入れる"
+run = [
+  "pnpm install --frozen-lockfile",
+  "go -C apps/api mod download",
+]
+
+[tasks.lint]
+description = "TypeScript，Go，OpenTofuのコードを検査する"
+depends = ["install"]
+run = [
+  "pnpm lint",
+  "pnpm -r typecheck",
+  "test -z \"$(gofmt -l apps/api)\" || { gofmt -l apps/api; exit 1; }",
+  "go -C apps/api vet ./...",
+  "tofu -chdir=infra fmt -check",
+]
+
+[tasks.fmt]
+description = "コードを整形する"
+depends = ["install"]
+run = [
+  "pnpm format",
+  "gofmt -w apps/api",
+  "tofu -chdir=infra fmt",
+]
+
+[tasks.test]
+description = "単体テストを実行する"
+depends = ["install"]
+run = [
+  "pnpm test",
+  "go -C apps/api test ./...",
+]
+
+[tasks.check]
+description = "題材の検査をまとめて実行する(CIと同じ)"
+depends = ["lint", "test"]
+
+[tasks.up]
+description = "MiniStackの上に本番の環境を作る"
+run = [
+  "tofu -chdir=infra init -input=false",
+  "tofu -chdir=infra apply -input=false -auto-approve",
+]
+
+[tasks.down]
+description = "本番の環境を消す"
+run = "tofu -chdir=infra destroy -input=false -auto-approve"
+
+[tasks."dev:api"]
+description = "APIを起動する(先にmise run upを実行する)"
+run = """
+DATABASE_URL="$(tofu -chdir=infra output -raw database_url)" \
+ADMIN_EMAIL=admin@example.com \
+ADMIN_PASSWORD="$(tofu -chdir=infra output -raw admin_password)" \
+go -C apps/api run ./cmd/api
+"""
+
+[tasks."dev:web"]
+description = "Webの画面を起動する"
+run = "pnpm --filter @app/web dev"
+
+[tasks.ci]
+description = "GitHub Actionsのワークフローを，actで手元で実行する"
+dir = "{{config_root}}/.."
+run = "act"
