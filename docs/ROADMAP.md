@@ -9,38 +9,52 @@
 
 すべての仕組みを手元で検査する．
 同じ検査がCIでも走り，結果が証跡として保管される．
+次は`mise run check`の出力の抜粋である．
 
 ```console
 $ mise run check
-[lint] ok
-[test] ok
-[test:gates] 14 gates, 31 tests passed
-[ops:verify] 18 items, all mechanisms found in workflows
-[gate:secrets] no leaks found
-[gate:sca] 0 findings over threshold (2 covered by exceptions)
-[gate:exceptions] 2 active, 0 expired
+...
+[test]       Tests  17 passed (17)
+[test:gates]       Tests  51 passed (51)
+[ops:verify] ops: ok
+[gate:secrets] INF no leaks found
+[gate:exceptions] exceptions: 3 active, 0 expired
+[gate:sla] sla: 0 affected, 1 not_affected, 0 overdue
+[gate:license] license: 2 SBOMs, all allowed
+[gate:sast] sast: no findings
+[gate:pinning] pinning: 8 workflows, all pinned
+[gate:eol] eol: 3 targets, none near the end of support
+[gate:iam] iam: 11 files, 4 policies, no problems
+[gate:policy] policy: 9 files, 0 failures
 ...
 ```
 
 月次報告を作る．
-運用項目ごとに，仕組みが動いた記録と，未対応の脆弱性，期限が近い例外をまとめる．
+運用項目ごとに，その月の仕組みの証跡の有無を確かめる．
+期限を過ぎた脆弱性，期限が近い例外，Scorecardの点もまとめる．
 
 ```console
-$ mise run ops:report -- --month 2026-11
-wrote out/report-2026-11.md
-  items: 18 (evidence found: 18)
+$ mise run ops:report --month 2026-10
+wrote out/report-2026-10.md
+  items: 30 (checked: 19, evidence found: 19)
+  missing evidence: なし
   vulnerabilities over SLA: 0
-  exceptions expiring within 30 days: 1 (EXC-003)
-  OpenSSF Scorecard: 8.1
+  exceptions expiring within 30 days: 0
+  OpenSSF Scorecard: 未取得
 ```
 
-セキュリティチェックシートの各質問に，運用項目と証跡を対応づけた回答の下書きを作る．
+セキュリティチェックシートの各質問に，運用項目を対応づけた回答の下書きを作る．
+下書き(`out/checksheet-sample.md`)には，運用項目ごとの証跡と手順書が載る．
 
 ```console
-$ mise run ops:checksheet -- checksheets/sample.yaml
-Q12 脆弱性管理を行っていますか → はい
-    運用項目: dependency-vulnerabilities, vulnerability-triage
-    証跡: s3://evidence/sca/2026-11/, out/report-2026-11.md
+$ mise run ops:checksheet checksheets/sample.yaml
+Q1 ソースコードの変更は，レビューと承認を経て本番に反映していますか → はい
+    運用項目: change-management, deploy-verification
+Q2 パスワードやAPIキーなどの秘密情報の漏洩を防ぐ仕組みがありますか → はい
+    運用項目: secret-detection, credential-rotation
+...
+Q9 データセンターへの物理的な入退室を管理していますか → 要確認
+wrote out/checksheet-sample.md
 ```
 
 ## 各回の進め方
@@ -379,16 +393,18 @@ Q12 脆弱性管理を行っていますか → はい
 
 ## 第14回 定期報告とチェックシート
 
-- 要求：運用の状況を定期的に報告する．顧客や監査の質問に，証跡を示して答える(SOC 2 CC2.2，ISO/IEC 27001 A.5.35)．
-- 仕込む問題：なし．これまでの仕組みと証跡をまとめる．
+- 要求：運用の状況を定期的に報告する．顧客や監査の質問に，証跡を示して答える(SOC 2 CC2.2，CC2.3，CC4.1，ISO/IEC 27001 A.5.35，A.5.36)．
+- 仕込む問題：なし．月次報告を作ると，結果を表示するだけで証跡を残さないゲート(exceptions，pinning，eol，iam)が見つかる．
 - 使用例：「完成したときの姿」のとおり，`mise run ops:report`で月次報告を，`mise run ops:checksheet`でチェックシートの回答の下書きを作る．
 - 追加するもの：
-  - `ops/items.yaml`：`monthly-report`と`checksheet-response`．各運用項目の要求に，チェックシートの質問を対応づける．月次報告は，各運用項目の`records`が指すログと証跡から作る．
-  - `tools/ops/report.ts`と`tools/ops/checksheet.ts`．
+  - 運用項目のスキーマ：仕組みに人が動かすmiseのタスク(`task`)を，`records`にログを絞る条件(`match`)を足す．
+  - `ops/items.yaml`：`supply-chain-scorecard`，`monthly-report`，`checksheet-response`．`ops`のログの問いに`match`を足す．
+  - `tools/ops/report.ts`と`tools/ops/checksheet.ts`．月次報告は，`match`のある問いのログと，`gates.yml`のジョブの証跡から作る．
   - `.github/workflows/scorecard.yml`：OpenSSF Scorecard．
   - `checksheets/sample.yaml`：講座で用意するチェックシートの例．
-- 運用テスト：証跡の欠けた運用項目があると，月次報告がそれを示すことを確かめる．
-- 証跡：月次報告とScorecardの結果をS3に保管する．
-- 設計書の更新：運用方針に，報告の宛先と頻度を書く．
-- 既存のテストへの影響：なし．
+- リファクタリング：証跡の置き場所を決める処理を`tools/gates/evidence.ts`に移し，証跡を残していなかった4つのゲートも結果のJSONを残す．
+- 運用テスト：証跡の欠けた定常の運用項目があると，月次報告がそれを示すことを確かめる．
+- 証跡：月次報告と，Scorecardの結果．
+- 設計書の更新：運用方針に，報告の宛先と頻度を書く．手順書に，月次報告とチェックシートの回答の手順を書く．
+- 既存のテストへの影響：`ops:verify`のテストに，タスクと`match`のfixtureを足す．4つのゲートのテストで，結果のJSONを確かめる．
 - 学習者が行う道具の操作：自分のリポジトリでScorecardを動かす．チェックシートの回答を見直す．

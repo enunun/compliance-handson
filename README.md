@@ -58,3 +58,4 @@ mise run iteration:solution 1
 | 11 | [権限の管理](docs/iterations/11.md) | [解説](docs/iterations/11-answer.md) |
 | 12 | [脆弱性のトリアージ](docs/iterations/12.md) | [解説](docs/iterations/12-answer.md) |
 | 13 | [組織への展開](docs/iterations/13.md) | [解説](docs/iterations/13-answer.md) |
+| 14 | [定期報告とチェックシート](docs/iterations/14.md) | [解説](docs/iterations/14-answer.md) |

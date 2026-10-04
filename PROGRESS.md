@@ -7,8 +7,7 @@
 
 | 回 | 状況 |
 | --- | --- |
-| 0〜13 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
-| 14 | 未着手． |
+| 0〜14 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
 
 ## 作り方
 
@@ -46,7 +45,16 @@
 
 ## 次にやること
 
-第14回(定期報告とチェックシート)から始める．作業用のリポジトリの最新のタグは`sol13`である．
+全15回のパッチと教材がそろった．作業用のリポジトリの最新のタグは`sol14`である．残りは「最後にやること」である．
+
+第14回で決めたこと：
+
+- 運用項目のスキーマ：仕組みに`task`(人が動かすmiseのタスク．`ops:verify`が`app/mise.toml`にあるかを確かめる)を足す．`records`に`match`(ログを絞る項目と値．例：`{ job: backup }`)を足し，`ops:verify`が項目の有無を確かめる．
+- `mise run ops:report --month YYYY-MM`：運用項目ごとに，`match`のある問いはCloudWatch Logsの記録を，`gates.yml`のジョブは証跡の保管場所の`<日付>/<コミット>/<ジョブ>/`を，その月に探す．定常の項目で見つからなければ「証跡なし」．あわせて，期限を過ぎた脆弱性，30日以内に期限の来る例外，Scorecardの点(`out/evidence/scorecard/results.json`があれば)をまとめ，`out/report-YYYY-MM.md`に書く．
+- 運用テストは，2099-01の日付で証跡を置き，`dependency-vulnerabilities`が見つかり，`actions-pinning`が「証跡なし」になることを確かめる．
+- 解答では，証跡のないゲート(exceptions，pinning，eol，iam)が結果のJSONを証跡に残し，`gates.yml`でartifactにする．
+- `mise run ops:checksheet checksheets/sample.yaml`：質問の`requirements`と運用項目の`requirements`を突き合わせ，回答の下書き(`out/checksheet-sample.md`)を作る．
+- `scorecard.yml`(OpenSSF Scorecard)，運用項目`monthly-report`，`checksheet-response`，`supply-chain-scorecard`．`escalation`の`timing`は非定常にする．
 
 第13回で決めたこと：
 
