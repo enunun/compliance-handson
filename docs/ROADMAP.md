@@ -281,17 +281,23 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第9回 バックアップとリストア
 
 - 要求：データを決めた間隔でバックアップし，戻せることを定期的に確かめる(ISO/IEC 27001 A.8.13)．
-- 仕込む問題：データベースのバックアップがない．
-- 使用例：定期ジョブが`pg_dump`の結果をS3に保管する．`mise run ops:restore-test`が新しいデータベースに戻し，データを検証する．
+- 仕込む問題：データベースのバックアップがない．この回では新たに仕込まない．
+- 使用例：定期ジョブが`pg_dump`の結果を，消せないバケットに保管する．`mise run ops:restore-test`が新しいデータベースに戻し，バックアップした時点の行数と比べる．
+  作業の結果は，運用の作業の記録(ログの種類`ops`)に残る．
 - 追加するもの：
-  - `ops/standards.yaml`：`backup.interval_hours`(RPO)と`backup.retention_days`．
-  - `ops/items.yaml`：`backup`と`restore-test`．`records`に，バックアップとリストアの訓練の成否を，月次報告で示せることを書く．
+  - `ops/standards.yaml`：`backup.interval_hours`(RPO)と`backup.retention_days`，ログの種類`ops`の保管期間．
+  - `ops/items.yaml`：`backup`と`restore-test`．`records`に，バックアップと訓練が行われたことを示す問いを書く．
+  - `ops/logs.yaml`：問いから導いたログの種類`ops`．
+  - `infra/backup.tf`：Object Lockつきのバックアップのバケット．
+  - `tools/ops/backup.ts`と`mise run ops:backup`．
+  - `tools/ops/restore-test.ts`と`mise run ops:restore-test`．
   - `.github/workflows/backup.yml`：`schedule`で動くバックアップとリストアの訓練．
-- 運用テスト：バックアップから戻したデータベースの行数と内容が，元と一致することを確かめる．
-- 証跡：バックアップのファイルと，リストアの訓練の結果をS3に保管する．
+- 運用テスト：バックアップを取り，新しいデータベースに戻した行数が一致することを確かめる．
+  保管場所が消せない設定であることと，作業の記録がログの設計に合うことも確かめる．
+- 証跡：バックアップのファイルと，リストアの訓練の結果．
 - 設計書の更新：手順書にリストアの手順を書く．
-- 既存のテストへの影響：なし．
-- 学習者が行う道具の操作：`act schedule`で定期ジョブを手元で動かす．
+- 既存のテストへの影響：第8回のログの運用テストは，APIが書くログの種類(`api`と`audit`)だけを確かめる形に変わる．
+- 学習者が行う道具の操作：Dev Containerを作り直す(PostgreSQLのクライアントが入る)．`act schedule`で定期ジョブを手元で動かす．
 
 ## 第10回 更新と定期的な再検査
 

@@ -8,6 +8,7 @@ RUN apt-get update \
 	procps \
 	jq \
 	libatomic1 \
+	postgresql-client \
 	&& rm -rf /var/lib/apt/lists/*
 
 # 講座の道具は，mise.tomlとmise.lockのとおりの版とチェックサムでイメージへ入れる．

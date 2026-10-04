@@ -7,8 +7,8 @@
 
 | 回 | 状況 |
 | --- | --- |
-| 0〜8 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
-| 9〜14 | 未着手． |
+| 0〜9 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
+| 10〜14 | 未着手． |
 
 ## 作り方
 
@@ -36,12 +36,13 @@
 - Docker Hubの取得回数の制限を避けるため，`/etc/docker/daemon.json`にミラー(`mirror.gcr.io`)を設定した．
 - イメージのビルドでは，ホストのGoのモジュールのキャッシュを`python3 -m http.server 8099`で配り，`DOCKER_BUILD_ARGS="--network host --build-arg GOPROXY=http://127.0.0.1:8099"`を渡す．
 - `000000000000.localhost`を`/etc/hosts`に足した．MiniStackは`docker run --network chnet --network-alias 000000000000.ministack -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock`で起動する．
+- PostgreSQLのクライアントは，この検証環境のホストにある(16系)．Dev ContainerにはDockerfileで入れる．
 - AWS CLI(v1)は`AWS_REGION`を読まないので，`.devcontainer/aws-config`にリージョンを書いた．
 - AWSの環境変数：`AWS_ENDPOINT_URL=http://localhost:4566`，`AWS_ACCESS_KEY_ID=test`，`AWS_SECRET_ACCESS_KEY=test`，`AWS_REGION=ap-northeast-1`，`AWS_CONFIG_FILE=.devcontainer/aws-config`．
 
 ## 次にやること
 
-第9回(バックアップとリストア)から始める．作業用のリポジトリの最新のタグは`sol8`である．
+第10回(更新と定期的な再検査)から始める．作業用のリポジトリの最新のタグは`sol9`である．
 
 ## 第9回から第14回でやること
 
