@@ -52,10 +52,9 @@ run = "tofu -chdir=infra destroy -input=false -auto-approve"
 
 [tasks."dev:api"]
 description = "APIを起動する(先にmise run upを実行する)"
+env = { TEST_USER_PASSWORD = "password" }
 run = """
 DATABASE_URL="$(tofu -chdir=infra output -raw database_url)" \
-ADMIN_EMAIL=admin@example.com \
-ADMIN_PASSWORD="$(tofu -chdir=infra output -raw admin_password)" \
 go -C apps/api run ./cmd/api
 """
 
