@@ -115,17 +115,21 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第1回 シークレット検出
 
 - 要求：認証情報をリポジトリに入れない．入ってしまったら無効化と交換をすぐに行う(ISO/IEC 27001 A.5.17，NIST SSDF PS.1)．
-- 仕込む問題：git履歴にAWSのアクセスキーが残っている．
-- 使用例：漏れたキーを含むコミットを，pre-commitとCIが止める．`mise run gate:secrets -- --history`で履歴全体を検査する．
+- 仕込む問題：メール配信サービスのAPIキーが，コードに直書きされてコミットされている．
+- 使用例：キーを含むコミットを，pre-commitで止める．`mise run gate:secrets`で，履歴全体を検査する．
 - 追加するもの：
   - `ops/items.yaml`：`secret-detection`．
-  - `mise run gate:secrets`：gitleaksでの検査．
-  - `lefthook.yml`：コミット時に`gate:secrets`を実行する．
-- ゲートのテスト：キーを含むfixtureで失敗し，キーを含まないfixtureで通る．fixtureの置き場所は検査の対象から外す．
-- 証跡：gitleaksの結果(JSON)をCIのartifactとして保存する．
-- 設計書の更新：手順書に漏洩時の対応(無効化，交換，履歴からの除去，連絡)を書く．運用方針に連絡先を足す．
+  - `mise run gate:secrets`と`mise run gate:secrets:staged`：gitleaksでの検査．
+  - `.gitleaks.toml`：fixtureの置き場所と，無効化済みのキーを許可する．
+  - `lefthook.yml`：コミット時に`gate:secrets:staged`を実行する．
+  - `.github/workflows/ci.yml`：`secrets`ジョブ．
+- リファクタリング：ゲートが増えるので，`mise run check`を，コードの検査(`check:code`)とゲート(`gates`)に分ける．
+  CIの`check`ジョブは`check:code`を実行し，ゲートはゲートごとのジョブで実行する．
+- ゲートのテスト：キーを含むコミットやステージした変更で失敗し，キーを含まないもので通る．出力と証跡にキーそのものを書かない．
+- 証跡：gitleaksの結果(JSON，キーは伏せ字)をCIのartifactとして保存する．
+- 設計書の更新：手順書に漏洩時の対応(無効化，交換，利用の確認，記録)を書く．運用方針に連絡先を足す．
 - 既存のテストへの影響：なし．
-- 学習者が行う道具の操作：lefthookを有効にする．仕込まれたキーを無効化した前提で履歴を書き換える．
+- 学習者が行う道具の操作：仕込まれたキーをコミットする．キーを無効化した前提で，履歴に残った検出を許可リストに記録する．
 
 ## 第2回 依存関係の脆弱性検査と例外
 

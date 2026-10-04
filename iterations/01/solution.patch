@@ -1,0 +1,293 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 2cc62c0..8a8c12d 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -17,4 +17,22 @@ jobs:
+     steps:
+       - uses: actions/checkout@v5
+       - uses: jdx/mise-action@v3
+-      - run: mise run check
++      - run: mise run check:code
++
++  secrets:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@v5
++        with:
++          # 履歴全体を検査するので，すべてのコミットを取得する．
++          fetch-depth: 0
++      - uses: jdx/mise-action@v3
++      - run: mise run gate:secrets
++      - uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: evidence-secrets
++          path: app/out/evidence/secrets/
+diff --git a/.gitleaks.toml b/.gitleaks.toml
+new file mode 100644
+index 0000000..d9f8005
+--- /dev/null
++++ b/.gitleaks.toml
+@@ -0,0 +1,12 @@
++# gitleaksの設定．既定のルールに，このリポジトリでの例外を足す．
++[extend]
++useDefault = true
++
++[[allowlists]]
++description = "ゲートのテストとその入力，教材の仕込みのパッチ"
++paths = ['''^app/tests/gates/''', '''^iterations/''']
++
++[[allowlists]]
++description = "無効化済みのキー．対応の記録は app/ops/runbooks/secret-leak.md の記録欄にある"
++regexTarget = "secret"
++regexes = ['''^mk_9f2c7a41e8b35d06c1f4a7e92b8d3c5f$''']
+diff --git a/app/apps/api/internal/mail/mail.go b/app/apps/api/internal/mail/mail.go
+index 583791c..41c1928 100644
+--- a/app/apps/api/internal/mail/mail.go
++++ b/app/apps/api/internal/mail/mail.go
+@@ -6,7 +6,8 @@ type Client struct {
+ 	apiKey string
+ }
+ 
+-// NewDefault は，チームで共有しているAPIキーでクライアントを作る．
+-func NewDefault() *Client {
+-	return &Client{apiKey: "mk_9f2c7a41e8b35d06c1f4a7e92b8d3c5f"}
++// New は，APIキーを受け取ってクライアントを作る．
++// APIキーは，起動時に環境変数(MAIL_API_KEY)などから渡す．
++func New(apiKey string) *Client {
++	return &Client{apiKey: apiKey}
+ }
+diff --git a/app/mise.toml b/app/mise.toml
+index 2fbc273..b03274d 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -41,6 +41,17 @@ description = "ゲートのテストを実行する"
+ depends = ["install"]
+ run = "pnpm test:gates"
+ 
++[tasks."gate:secrets"]
++description = "gitの履歴全体からシークレットを探す(引数でリポジトリの場所を変えられる)"
++run = [
++  "mkdir -p out/evidence/secrets",
++  "gitleaks git --config ../.gitleaks.toml --redact --report-format json --report-path out/evidence/secrets/gitleaks.json",
++]
++
++[tasks."gate:secrets:staged"]
++description = "コミットしようとしている変更からシークレットを探す(引数でリポジトリの場所を変えられる)"
++run = "gitleaks git --config ../.gitleaks.toml --redact --pre-commit --staged"
++
+ [tasks."ops:verify"]
+ description = "基準値と運用項目を検証し，仕組みとワークフローを突き合わせる"
+ depends = ["install"]
+@@ -60,10 +71,18 @@ gh api "repos/{owner}/{repo}/branches/main/protection" \
+ echo "wrote out/evidence/change/branch-protection-$(date +%Y%m%d).json"
+ """
+ 
+-[tasks.check]
+-description = "題材の検査をまとめて実行する(CIと同じ)"
++[tasks."check:code"]
++description = "コードと運用項目を検査する(CIのcheckジョブ)"
+ depends = ["lint", "test", "test:gates", "ops:verify"]
+ 
++[tasks.gates]
++description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
++depends = ["gate:secrets"]
++
++[tasks.check]
++description = "題材の検査とゲートをまとめて実行する"
++depends = ["check:code", "gates"]
++
+ [tasks.up]
+ description = "MiniStackの上に本番の環境を作る"
+ run = [
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 5531319..402615b 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -5,3 +5,4 @@
+ | ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
+ | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+ | change-management | 変更管理 | 運用管理 | SOC2:CC8.1<br>ISO27001:A.8.32 | ci.yml: check | ブランチ保護の設定(JSON)と，プルリクエストのレビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
++| secret-detection | シークレット検出 | 運用管理 | ISO27001:A.5.17<br>ISO27001:A.8.4<br>SSDF:PS.1 | ci.yml: secrets | gitleaksの結果(JSON，キーは伏せ字)をCIのartifactとして保存 | 定常(変更ごと，コミットごと) | 自動 | [手順書](runbooks/secret-leak.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 639c42d..8aef53b 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -13,3 +13,15 @@ items:
+     timing: 定常(変更ごと)
+     actor: 自動
+     runbook: runbooks/emergency-change.md
++
++  - id: secret-detection
++    title: シークレット検出
++    category: 運用管理
++    requirements: [ISO27001:A.5.17, ISO27001:A.8.4, SSDF:PS.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: secrets
++    evidence: gitleaksの結果(JSON，キーは伏せ字)をCIのartifactとして保存
++    timing: 定常(変更ごと，コミットごと)
++    actor: 自動
++    runbook: runbooks/secret-leak.md
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index 09f3981..ce21804 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -16,3 +16,9 @@
+ mainへの変更は，すべてプルリクエストで行う．
+ mainに入るには，standards.yaml の `change.required_approvals` 人の承認と，CIの `check` ジョブの成功が要る．
+ 障害の復旧などで待てないときは，[緊急変更の手順](runbooks/emergency-change.md)に従う．
++
++## 連絡先
++
++| 事象 | 最初に知らせる相手 | 手段 |
++| --- | --- | --- |
++| シークレットの漏洩 | セキュリティ責任者 | チャットの #security と電話 |
+diff --git a/app/ops/runbooks/secret-leak.md b/app/ops/runbooks/secret-leak.md
+new file mode 100644
+index 0000000..a46b932
+--- /dev/null
++++ b/app/ops/runbooks/secret-leak.md
+@@ -0,0 +1,29 @@
++# シークレットが漏れたときの対応
++
++APIキー，パスワード，トークンなどがリポジトリに入ったことが分かったときの手順．
++gitの履歴に入った時点で，漏れたものとして扱う．
++
++## 実施する人
++
++見つけた開発者が，すぐにセキュリティ責任者へ知らせて始める．
++
++## 手順
++
++1. 漏れたシークレットを，発行元で無効化する．新しいシークレットを発行する．
++   履歴から消すより先に行う．forkやcloneにはすでに残っているからである．
++2. 新しいシークレットを，コードではなく環境変数やSecrets Managerから読むように直す．
++3. 無効化したシークレットの利用の記録を，発行元で確かめる．不審な利用があれば，インシデントとして扱う．
++4. 履歴に残った検出を，無効化済みとして`.gitleaks.toml`の許可リストに足す．
++   理由と，この手順書の記録欄の行を示すコメントを書く．
++5. 下の記録欄に，対応の記録を足す．
++
++## 証跡
++
++- 発行元での無効化の記録．
++- この手順書の記録欄と，`.gitleaks.toml`の変更のプルリクエスト．
++
++## 記録
++
++| 日付 | シークレット | 見つけた場所 | 無効化 | 利用の確認 | 対応した人 |
++| --- | --- | --- | --- | --- | --- |
++| 第1回の演習の日 | メール配信サービスのAPIキー(`mk_9f2c…`) | `apps/api/internal/mail/mail.go` | 済み | 不審な利用なし | 開発チーム |
+diff --git a/app/tests/gates/fixtures/secrets/clean/config.go b/app/tests/gates/fixtures/secrets/clean/config.go
+new file mode 100644
+index 0000000..47f6d0e
+--- /dev/null
++++ b/app/tests/gates/fixtures/secrets/clean/config.go
+@@ -0,0 +1,6 @@
++package config
++
++import "os"
++
++// 決済サービスのAPIキーは，環境変数から読む．
++var paymentAPIKey = os.Getenv("PAYMENT_API_KEY")
+diff --git a/app/tests/gates/fixtures/secrets/leaked/config.go b/app/tests/gates/fixtures/secrets/leaked/config.go
+new file mode 100644
+index 0000000..67e20b5
+--- /dev/null
++++ b/app/tests/gates/fixtures/secrets/leaked/config.go
+@@ -0,0 +1,4 @@
++package config
++
++// 決済サービスのAPIキー．
++const paymentAPIKey = "pk_51c8e3a9f07b2d46e1a5c9f38b7d2e04"
+diff --git a/app/tests/gates/secrets.test.ts b/app/tests/gates/secrets.test.ts
+new file mode 100644
+index 0000000..f6e9b7c
+--- /dev/null
++++ b/app/tests/gates/secrets.test.ts
+@@ -0,0 +1,71 @@
++import { cpSync, mkdtempSync, readFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { describe, expect, it } from "vitest";
++import { appRoot, fixture, run } from "./helpers.ts";
++
++const leakedKey = "pk_51c8e3a9f07b2d46e1a5c9f38b7d2e04";
++
++function git(dir: string, ...args: string[]) {
++  run(
++    "git",
++    ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
++    dir,
++  );
++}
++
++/**
++ * fixtures/secrets/<name> を中身にした，一時的なgitのリポジトリを作る．
++ * commit が false なら，中身をステージするだけでコミットしない．
++ */
++function repoFrom(name: string, { commit = true } = {}): string {
++  const dir = mkdtempSync(join(tmpdir(), "gate-secrets-"));
++  git(dir, "init", "-q");
++  git(dir, "commit", "-q", "--allow-empty", "-m", "init");
++  cpSync(fixture("secrets", name), dir, { recursive: true });
++  git(dir, "add", "-A");
++  if (commit) {
++    git(dir, "commit", "-qm", name);
++  }
++  return dir;
++}
++
++describe("gate:secrets", () => {
++  it("キーを含むコミットが履歴にあれば失敗する", () => {
++    const result = run("mise", ["run", "gate:secrets", repoFrom("leaked")]);
++    expect(result.output).toContain("leaks found: 1");
++    expect(result.status).not.toBe(0);
++  });
++
++  it("キーを含まないリポジトリでは通る", () => {
++    const result = run("mise", ["run", "gate:secrets", repoFrom("clean")]);
++    expect(result.output).toContain("no leaks found");
++    expect(result.status).toBe(0);
++  });
++
++  it("出力と証跡にキーそのものを書かない", () => {
++    const result = run("mise", ["run", "gate:secrets", repoFrom("leaked")]);
++    const report = readFileSync(
++      join(appRoot, "out/evidence/secrets/gitleaks.json"),
++      "utf8",
++    );
++    expect(report).toContain("generic-api-key");
++    expect(result.output).not.toContain(leakedKey);
++    expect(report).not.toContain(leakedKey);
++  });
++});
++
++describe("gate:secrets:staged", () => {
++  it("コミットしようとしている変更にキーがあれば失敗する", () => {
++    const repo = repoFrom("leaked", { commit: false });
++    const result = run("mise", ["run", "gate:secrets:staged", repo]);
++    expect(result.output).toContain("leaks found: 1");
++    expect(result.status).not.toBe(0);
++  });
++
++  it("コミットしようとしている変更にキーがなければ通る", () => {
++    const repo = repoFrom("clean", { commit: false });
++    const result = run("mise", ["run", "gate:secrets:staged", repo]);
++    expect(result.status).toBe(0);
++  });
++});
+diff --git a/lefthook.yml b/lefthook.yml
+index 63dc227..deb9251 100644
+--- a/lefthook.yml
++++ b/lefthook.yml
+@@ -14,3 +14,6 @@ pre-commit:
+     markdownlint:
+       glob: "*.md"
+       run: pnpm markdownlint-cli2 {staged_files}
++
++    secrets:
++      run: mise -C app run gate:secrets:staged
