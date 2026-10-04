@@ -2,7 +2,7 @@
 
 教材を作る人とエージェントのための計画書．
 講座の前提，題材，設計書，開発環境と，各回の範囲を定める．
-学習者向けの各回の詳細は`docs/ROADMAP.md`に書く．
+学習者向けの各回の要件は`docs/ROADMAP.md`に書く．
 
 ## 対象者とゴール
 
@@ -38,46 +38,58 @@
 ## 題材
 
 あらかじめ問題を仕込んだ，小さなSaaSのモノレポを学習者が育てる．
-題材は教材とは別の，テンプレートリポジトリ`compliance-handson-app`に置く．
+題材はこのリポジトリの`app/`に置き，教材と同じリポジトリで完結させる．
 
 ```text
-.devcontainer/      学習者が作業するDev Container
-apps/
-  web/              TypeScriptのWebアプリ(pnpm workspace)
-  api/              GoのAPI
-packages/
-  shared/           TypeScriptの共通ライブラリ
-infra/              OpenTofu
-ops/
-  standards.yaml    基準値
-  items.yaml        運用項目
-  exceptions.yaml   例外
-  schema/           上の3つのJSON Schema
-  runbooks/         手順書
-  policy.md         運用方針
-tools/ops/          YAMLの検証，運用項目一覧の生成
-tests/gates/        ゲートのテストと，だめな入力のfixture
-tests/ops/          運用テスト
-policy/             conftestのルール
+.devcontainer/        学習者と教材を作る人が共に使うDev Container
 .github/
-  workflows/        ゲートと定期ジョブ
+  workflows/          題材のゲートと定期ジョブ(作業ディレクトリはapp/)
   CODEOWNERS
-mise.toml           道具の版とタスク
+mise.toml             道具の版と，教材のタスク
+app/                  題材(第0回の開始時点)
+  mise.toml           題材のタスク
+  apps/
+    web/              TypeScriptのWebアプリ(pnpm workspace)
+    api/              GoのAPI
+  packages/
+    shared/           TypeScriptの共通ライブラリ
+  infra/              OpenTofu
+  ops/
+    standards.yaml    基準値
+    items.yaml        運用項目
+    exceptions.yaml   例外
+    schema/           上の3つのJSON Schema
+    runbooks/         手順書
+    policy.md         運用方針
+  tools/ops/          YAMLの検証，運用項目一覧の生成
+  tests/gates/        ゲートのテストと，だめな入力のfixture
+  tests/ops/          運用テスト
+  policy/             conftestのルール
+iterations/NN/        各回の仕込みと解答のパッチ
+docs/                 ロードマップと各回の解説
 ```
+
+GitHubはリポジトリ直下の`.github/workflows`だけを実行するので，題材のワークフローとCODEOWNERSは直下に置く．
+ワークフローは`defaults.run.working-directory: app`で`app/`を対象にする．
+道具の版は直下の`mise.toml`にだけ書き，`app/mise.toml`には題材のタスクだけを書く．
 
 仕込む問題の例は，git履歴に残った認証情報，脆弱なバージョンの依存関係，rootで動くDockerfile，公開設定のS3バケットである．
 CIはGitHub Actionsで動かす．
 
 ## 演習と解答
 
-題材リポジトリのタグで，各回の開始時点と解答を示す．
+学習者は最初に，このリポジトリをforkするか，テンプレートとして使って自分のGitHubリポジトリを作る．
+以降は`app/`で作業し，ブランチ保護やActionsを自分のリポジトリで設定する．
 
-- `iteration-N-exercise`：第N回の開始時点．第N-1回の解答に，その回で検出する問題を仕込んだもの．
-- `iteration-N-solution`：第N回の解答．
+各回の仕込みと解答は，`iterations/NN/`のパッチで持つ．
 
-学習者は，テンプレートから自分のGitHubリポジトリを作り，ブランチ保護やActionsを自分で設定する．
-行き詰まったら，`git diff iteration-N-solution`で解答との差分を見る．
-各回の解説は，教材リポジトリ(このリポジトリ)の`docs/iteration-N.md`に書く．
+- `problems.patch`：第N回で検出する問題の仕込み．第0回にはない．
+- `solution.patch`：第N回の解答．第N-1回の解答に仕込みを当てた状態との差分．
+
+学習者は，各回の始めに`mise run iteration:start N`で仕込みを自分のコードに当てる．
+遅れたときや行き詰まったときは，`mise run iteration:solution N`で解答を当てる．
+`mise run iterations:verify`は，一時的なコピーに第0回からパッチを順に当て，各回の解答で`mise run check`が通ることを確かめる．
+各回の演習の手順と解説は，`docs/iterations/NN.md`に書く．
 
 ## 各回の範囲
 
