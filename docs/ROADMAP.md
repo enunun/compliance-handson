@@ -142,10 +142,11 @@ Q12 脆弱性管理を行っていますか → はい
   - `ops/items.yaml`：`dependency-vulnerabilities`と`exception-requests`．
   - `mise run gate:sca`：Trivyでの検査．例外の一覧からTrivyの除外設定を生成して使う．
   - `mise run gate:exceptions`：期限切れと，最長期間を超える例外を検出する．
+- リファクタリング：ゲートのテストと本物のゲートが同じ証跡のファイルに書き合わないように，証跡の置き場所を環境変数`EVIDENCE_DIR`で替えられるようにする．
 - ゲートのテスト：脆弱な依存関係のfixtureで失敗し，例外に載せると通る．期限切れの例外で`gate:exceptions`が失敗する．
 - 証跡：Trivyの結果(JSON)と，例外の一覧の変更履歴(承認つきのプルリクエスト)．
 - 設計書の更新：手順書に例外の申請を書く．CODEOWNERSで`ops/exceptions.yaml`をセキュリティ責任者の承認対象にする．
-- 既存のテストへの影響：なし．
+- 既存のテストへの影響：`ops:verify`のfixtureの基準値に，脆弱性と例外の基準を足す．`gate:secrets`のテストは，証跡を一時的な場所から読む．
 - 学習者が行う道具の操作：依存関係を更新する(`pnpm update`，`go get`)．例外を申請するプルリクエストを作る．
 
 ## 第3回 SBOMとライセンス，証跡の保管

@@ -46,3 +46,4 @@ mise run iteration:solution 1
 | --- | --- | --- |
 | 0 | [変更管理と運用項目の土台](docs/iterations/00.md) | [解説](docs/iterations/00-answer.md) |
 | 1 | [シークレット検出](docs/iterations/01.md) | [解説](docs/iterations/01-answer.md) |
+| 2 | [依存関係の脆弱性検査と例外](docs/iterations/02.md) | [解説](docs/iterations/02-answer.md) |
