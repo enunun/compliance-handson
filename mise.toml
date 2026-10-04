@@ -17,6 +17,7 @@ semgrep = "1.179.0"
 cosign = "3.1.3"
 conftest = "0.71.0"
 promtool = "3.5.5"
+"aqua:prometheus/alertmanager" = "0.34.1"
 act = "0.2.89"
 gh = "2.102.0"
 

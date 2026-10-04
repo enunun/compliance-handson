@@ -233,18 +233,21 @@ Q12 脆弱性管理を行っていますか → はい
 ## 第7回 監視とアラート
 
 - 要求：サービスの異常に気づき，決めた担当者へ知らせる(ISO/IEC 27001 A.8.16)．
-- 仕込む問題：APIのエラー率が上がっても，誰にも通知されない．
-- 使用例：`mise run up`でPrometheus，Alertmanager，Grafanaも起動する．APIのエラー率がしきい値を超えると，Alertmanagerが通知する．
+- 仕込む問題：APIのエラー率が上がっても，誰にも通知されない．この回では新たに仕込まない．
+- 使用例：Dev ContainerでPrometheus，Alertmanager，Grafanaも起動する．APIのエラー率がしきい値を超えると，Alertmanagerが重大度に応じた通知先へ知らせる．
 - 追加するもの：
-  - `ops/standards.yaml`：`monitoring.error_rate_threshold`．
-  - `ops/items.yaml`：`service-monitoring`．
-  - `apps/api`：`/metrics`のエンドポイント．
-  - `ops/monitoring/`：アラートのルール，Alertmanagerの通知先，Grafanaのダッシュボード．
-- 運用テスト：`promtool test rules`で，エラー率が上がるとアラートが発火し，下がると止むことを確かめる．
+  - `ops/standards.yaml`：`monitoring.error_rate_threshold`と`monitoring.error_rate_for`．
+  - `ops/items.yaml`：`service-monitoring`．仕組みはアラートのルールである．
+  - `apps/api`：`/metrics`のエンドポイントと，ルートとステータスコードごとのリクエストの数．
+  - `ops/monitoring/`：Prometheusの設定，アラートのルール(基準値から`ops:render`で生成する)，Alertmanagerの通知先，Grafanaのダッシュボード．
+  - `.devcontainer/compose.yml`：Prometheus，Alertmanager，Grafanaのサービス．
+  - `mise run test:alerts`：監視の設定の検査，アラートのルールのテスト，通知先の振り分けのテスト．
+- 運用テスト：`promtool test rules`で，エラー率が上がるとアラートが発火し，下がると止むこと，低いエラー率では発火しないことを確かめる．
+  `amtool config routes test`で，重大度ごとの通知先を確かめる．
 - 証跡：アラートのルールとそのテストの結果．
 - 設計書の更新：手順書にアラートへの対応を書く．運用方針に通知先を足す．
-- 既存のテストへの影響：`ops:verify`が，運用項目の仕組みとしてアラートのルールも突き合わせるようになる．
-- 学習者が行う道具の操作：Grafanaでダッシュボードを確かめる．
+- 既存のテストへの影響：運用項目の仕組みに，ワークフローのジョブに加えてアラートを書けるようにスキーマを変える．`ops:verify`は，アラートのルールが基準値と合うかも確かめる．
+- 学習者が行う道具の操作：Dev Containerを作り直す(Rebuild Container)．Grafanaでダッシュボードを確かめる．
 
 ## 第8回 ログ設計
 

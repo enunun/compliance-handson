@@ -143,7 +143,7 @@ CIはGitHub Actionsで動かす．
 - 言語とパッケージ管理：Node.jsとpnpm，Go．
 - IaC：OpenTofu．
 - 本番の環境：AWSのAPIはMiniStackで模す．監視はPrometheus，Alertmanager，Grafanaで行う．どちらもDev Containerの中でコンテナとして動かす．
-- 検査の道具：Trivy，gitleaks，Semgrep，cosign，conftest．
+- 検査と監視の道具：Trivy，gitleaks，Semgrep，cosign，conftest，promtool，amtool．
 - CI：GitHub Actions．MiniStackはジョブのサービスコンテナとして起動し，`tofu apply`とアプリの結合テストを流す．
 - ワークフローの手元での確認：nektos/act．`mise run ci`で実行する．OIDCトークンとGitHub本体の機能(ブランチ保護，必須チェック，CODEOWNERS，Renovate)はactでは動かないので，それらを扱う第0，6，10，11回はGitHubにpushして確かめる．
 - スクリプトとゲートのテスト：TypeScriptとVitestで書く．YAMLの検証にはAjvを使う．アラートのルールはpromtoolでテストする．

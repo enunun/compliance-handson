@@ -42,6 +42,46 @@ checksum = "sha256:0f8cf866ad7e32421a219fc551a0a0ea5d12ead464de12ebfeafd334a5973
 url = "https://github.com/nektos/act/releases/download/v0.2.89/act_Windows_x86_64.zip"
 url_api = "https://api.github.com/repos/nektos/act/releases/assets/434891261"
 
+[[tools."aqua:prometheus/alertmanager"]]
+version = "0.34.1"
+backend = "aqua:prometheus/alertmanager"
+specifiers = ["0.34.1"]
+
+[tools."aqua:prometheus/alertmanager"."platforms.linux-arm64"]
+checksum = "sha256:d98d6cbaf52151c7e76e24355fec88b11cebcb9875d4cdd8b76ddce7a7e5535c"
+url = "https://github.com/prometheus/alertmanager/releases/download/v0.34.1/alertmanager-0.34.1.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/alertmanager/releases/assets/569768188"
+
+[tools."aqua:prometheus/alertmanager"."platforms.linux-arm64-musl"]
+checksum = "sha256:d98d6cbaf52151c7e76e24355fec88b11cebcb9875d4cdd8b76ddce7a7e5535c"
+url = "https://github.com/prometheus/alertmanager/releases/download/v0.34.1/alertmanager-0.34.1.linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/alertmanager/releases/assets/569768188"
+
+[tools."aqua:prometheus/alertmanager"."platforms.linux-x64"]
+checksum = "sha256:265b9d1e55ef0d5306a436018af6d2b686c2ce051f03d968f7464ecb1372a7e8"
+url = "https://github.com/prometheus/alertmanager/releases/download/v0.34.1/alertmanager-0.34.1.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/alertmanager/releases/assets/569768116"
+
+[tools."aqua:prometheus/alertmanager"."platforms.linux-x64-musl"]
+checksum = "sha256:265b9d1e55ef0d5306a436018af6d2b686c2ce051f03d968f7464ecb1372a7e8"
+url = "https://github.com/prometheus/alertmanager/releases/download/v0.34.1/alertmanager-0.34.1.linux-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/alertmanager/releases/assets/569768116"
+
+[tools."aqua:prometheus/alertmanager"."platforms.macos-arm64"]
+checksum = "sha256:a3941879f340ef12a4cc1a479c82bd8520611265ea8d1ee25c88bd5f944d8293"
+url = "https://github.com/prometheus/alertmanager/releases/download/v0.34.1/alertmanager-0.34.1.darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/alertmanager/releases/assets/569767473"
+
+[tools."aqua:prometheus/alertmanager"."platforms.macos-x64"]
+checksum = "sha256:9f3a3806c81a2ef3546fea9bae3dd39abcf2206edd112c9433133a9355875fce"
+url = "https://github.com/prometheus/alertmanager/releases/download/v0.34.1/alertmanager-0.34.1.darwin-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/alertmanager/releases/assets/569767394"
+
+[tools."aqua:prometheus/alertmanager"."platforms.windows-x64"]
+checksum = "sha256:e09f8beeecafc765cff9822ba1327e657b7e02154b830d38c6190f3f4cf012e3"
+url = "https://github.com/prometheus/alertmanager/releases/download/v0.34.1/alertmanager-0.34.1.windows-amd64.tar.gz"
+url_api = "https://api.github.com/repos/prometheus/alertmanager/releases/assets/569769575"
+
 [[tools.conftest]]
 version = "0.71.0"
 backend = "aqua:open-policy-agent/conftest"
