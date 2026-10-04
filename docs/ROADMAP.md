@@ -1,0 +1,339 @@
+# ロードマップ
+
+この講座では，問題を仕込んだ小さなSaaSのモノレポに，コンプライアンスの仕組みを1回に1つずつ作り込む．
+全15回を終えると，自分のリポジトリの仕組みと証跡を見せて，セキュリティチェックシートや監査の質問に答えられる．
+
+## 完成したときの姿
+
+第14回を終えたリポジトリでは，次のことができる．
+
+すべての仕組みを手元で検査する．
+同じ検査がCIでも走り，結果が証跡として保管される．
+
+```console
+$ mise run check
+[lint] ok
+[test] ok
+[test:gates] 14 gates, 31 tests passed
+[ops:verify] 18 items, all mechanisms found in workflows
+[gate:secrets] no leaks found
+[gate:sca] 0 findings over threshold (2 covered by exceptions)
+[gate:exceptions] 2 active, 0 expired
+...
+```
+
+月次報告を作る．
+運用項目ごとに，仕組みが動いた記録と，未対応の脆弱性，期限が近い例外をまとめる．
+
+```console
+$ mise run ops:report -- --month 2026-11
+wrote out/report-2026-11.md
+  items: 18 (evidence found: 18)
+  vulnerabilities over SLA: 0
+  exceptions expiring within 30 days: 1 (EXC-003)
+  OpenSSF Scorecard: 8.1
+```
+
+セキュリティチェックシートの各質問に，運用項目と証跡を対応づけた回答の下書きを作る．
+
+```console
+$ mise run ops:checksheet -- checksheets/sample.yaml
+Q12 脆弱性管理を行っていますか → はい
+    運用項目: dependency-vulnerabilities, vulnerability-triage
+    証跡: s3://evidence/sca/2026-11/, out/report-2026-11.md
+```
+
+## 各回の進め方
+
+各回は，同じ順で進める．
+
+1. 要求を読む．その回のコントロールを，どの規格がなぜ求めるかを確かめる．
+2. 運用項目を書く．`ops/items.yaml`に項目を足し，必要なら`ops/standards.yaml`に基準値を足す．
+3. テストを書く．だめな入力で仕組みが失敗し，正しい入力で通ることを確かめるテストを先に書き，失敗することを見る．
+4. 仕組みを作る．miseのタスクとCIのジョブを作り，テストを通す．
+5. 証跡を残す．仕組みの結果を，決めた場所に保管する．
+6. 手順書と運用方針を直す．人の手で行う作業があれば手順書を書く．
+7. 自分のリポジトリに適用する．`mise run ci`でワークフローを確かめてから，GitHubにpushする．
+
+演習は題材リポジトリのタグ`iteration-N-exercise`から始める．
+解答は`iteration-N-solution`にある．
+
+## テストの分け方
+
+| 種類 | 確かめること | 置き場所 | 実行するタスク |
+| --- | --- | --- | --- |
+| 単体テスト | アプリと`tools/ops/`のスクリプトの振る舞い | 各パッケージ | `test` |
+| ゲートのテスト | だめな入力のfixtureでゲートが失敗し，正しい入力で通ること | `tests/gates/` | `test:gates` |
+| 運用テスト | アラートのルール，監査ログの出力，リストアの結果など，運用の仕組みが期待どおり動くこと | `tests/ops/` | `test:ops` |
+
+ゲートのテストと運用テストは，ゲートや仕組みを作る前に書く．
+
+## 各回の一覧
+
+| 回 | 作る仕組み | 学ぶこと |
+| --- | --- | --- |
+| 0 | 変更管理と運用項目の土台 | ブランチ保護，CODEOWNERS，運用項目のYAML，ゲートのテストの書き方，MiniStack，act |
+| 1 | シークレット検出 | gitleaks，pre-commit，漏洩時の対応 |
+| 2 | 依存関係の脆弱性検査と例外 | Trivy，CVSSと重大度，期限付きの例外 |
+| 3 | SBOMとライセンス，証跡の保管 | CycloneDX，ライセンスポリシー，S3のObject Lock，OpenTofu |
+| 4 | SAST | Semgrep，誤検知の扱い |
+| 5 | コンテナとIaCの設定検査 | イメージの検査，設定の誤りの検出 |
+| 6 | ワークフローと成果物の完全性 | ハッシュ固定，cosign，SLSA provenance，OIDC |
+| 7 | 監視とアラート | Prometheus，Alertmanager，Grafana，promtool |
+| 8 | 監査ログ | 構造化ログ，CloudWatch Logs，保管期間 |
+| 9 | バックアップとリストア | pg_dump，RPO，リストアの訓練，定期ジョブ |
+| 10 | 更新と定期的な再検査 | Renovate，SBOMの再検査，EOL |
+| 11 | 権限の管理 | 最小権限，棚卸し，ローテーション |
+| 12 | 脆弱性のトリアージ | 対応期限，OpenVEX，エスカレーション |
+| 13 | 組織への展開 | conftest，reusable workflow，デプロイ前の検証 |
+| 14 | 定期報告とチェックシート | 証跡の集約，OpenSSF Scorecard |
+
+## 第0回 変更管理と運用項目の土台
+
+- 要求：本番に入る変更は，レビューと検査を通ったものだけにする．誰が何を承認したかを示せるようにする(SOC 2 CC8.1，ISO/IEC 27001 A.8.32)．
+- 仕込む問題：レビューなしで`main`へ直接pushできる．
+- 使用例：`mise run up`でMiniStackを起動し，`tofu apply`で環境を作ってアプリを動かす．
+  `mise run check`と`mise run ci`が通る．
+- 追加するもの：
+  - `ops/standards.yaml`：`change.required_approvals`．
+  - `ops/items.yaml`：`change-management`．
+  - `ops/schema/`：基準値と運用項目のJSON Schema．
+  - `tools/ops/verify.ts`：YAMLのスキーマ検証と，運用項目の仕組みとワークフローのジョブの突き合わせ．
+  - `tools/ops/render.ts`：運用項目一覧(Markdown)の生成．
+  - `.github/workflows/ci.yml`：`mise run check`を呼ぶジョブ．
+  - `.github/CODEOWNERS`：`ops/standards.yaml`をセキュリティ責任者の承認対象にする．
+  - `mise run ops:evidence:change`：ブランチ保護の設定をGitHubのAPIで取得し，JSONで保存する．
+- ゲートのテスト：存在しないジョブを仕組みに書いた運用項目で，`ops:verify`が失敗する．スキーマに合わない基準値で失敗する．
+- 証跡：ブランチ保護の設定(JSON)と，プルリクエストのレビュー記録．
+- 設計書の更新：YAMLの初版を書く．運用方針に体制と役割を書く．手順書に緊急変更の手順を書く．
+- 既存のテストへの影響：なし(最初の回)．
+- 学習者が行う道具の操作：テンプレートからリポジトリを作る．ブランチ保護と必須チェックを設定する．`mise run ci`でactを動かす．
+
+## 第1回 シークレット検出
+
+- 要求：認証情報をリポジトリに入れない．入ってしまったら無効化と交換をすぐに行う(ISO/IEC 27001 A.5.17，NIST SSDF PS.1)．
+- 仕込む問題：git履歴にAWSのアクセスキーが残っている．
+- 使用例：漏れたキーを含むコミットを，pre-commitとCIが止める．`mise run gate:secrets -- --history`で履歴全体を検査する．
+- 追加するもの：
+  - `ops/items.yaml`：`secret-detection`．
+  - `mise run gate:secrets`：gitleaksでの検査．
+  - `lefthook.yml`：コミット時に`gate:secrets`を実行する．
+- ゲートのテスト：キーを含むfixtureで失敗し，キーを含まないfixtureで通る．fixtureの置き場所は検査の対象から外す．
+- 証跡：gitleaksの結果(JSON)をCIのartifactとして保存する．
+- 設計書の更新：手順書に漏洩時の対応(無効化，交換，履歴からの除去，連絡)を書く．運用方針に連絡先を足す．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：lefthookを有効にする．仕込まれたキーを無効化した前提で履歴を書き換える．
+
+## 第2回 依存関係の脆弱性検査と例外
+
+- 要求：既知の脆弱性を持つ依存関係を本番に入れない．受け入れるリスクは期限と承認者を決めて記録する(ISO/IEC 27001 A.8.8，SOC 2 CC7.1)．
+- 仕込む問題：`apps/web`と`apps/api`に，重大度が高い脆弱性を持つ依存関係がある．1件は到達しないコードにあり，例外として扱う．
+- 使用例：`mise run gate:sca`がnpmとGoの依存関係を検査する．例外に載った脆弱性は失敗にしない．期限を過ぎた例外が残ると失敗する．
+- 追加するもの：
+  - `ops/standards.yaml`：`vulnerability.fail_severity`と`exception.max_days`．
+  - `ops/exceptions.yaml`：例外の一覧．対象，理由，承認者，期限を持つ．
+  - `ops/items.yaml`：`dependency-vulnerabilities`と`exception-requests`．
+  - `mise run gate:sca`：Trivyでの検査．例外の一覧からTrivyの除外設定を生成して使う．
+  - `mise run gate:exceptions`：期限切れと，最長期間を超える例外を検出する．
+- ゲートのテスト：脆弱な依存関係のfixtureで失敗し，例外に載せると通る．期限切れの例外で`gate:exceptions`が失敗する．
+- 証跡：Trivyの結果(JSON)と，例外の一覧の変更履歴(承認つきのプルリクエスト)．
+- 設計書の更新：手順書に例外の申請を書く．CODEOWNERSで`ops/exceptions.yaml`をセキュリティ責任者の承認対象にする．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：依存関係を更新する(`pnpm update`，`go get`)．例外を申請するプルリクエストを作る．
+
+## 第3回 SBOMとライセンス，証跡の保管
+
+- 要求：出荷するソフトウェアの構成部品を一覧にして渡せるようにする．
+  ライセンスの義務を守る．
+  証跡は消せない形で決めた期間だけ保管する(経済産業省のSBOM導入の手引，NIST SSDF PS.3)．
+- 仕込む問題：`apps/web`の依存関係に，許可していないライセンスのパッケージがある．
+- 使用例：`mise run sbom`がコンポーネントごとにCycloneDXのSBOMを作る．`mise run gate:license`が許可されたライセンスかを検査する．CIは証跡をMiniStackのS3に保管する．
+- 追加するもの：
+  - `ops/standards.yaml`：`license.allowed`と`evidence.retention_days`．
+  - `ops/items.yaml`：`sbom`，`license-policy`，`evidence-retention`．
+  - `infra/evidence.tf`：Object LockとライフサイクルつきのS3バケット．保管期間は`ops/standards.yaml`から読む．
+  - `mise run evidence:upload`：証跡をS3に保管する．
+  - CIのジョブにMiniStackのサービスコンテナを足す．
+- ゲートのテスト：許可していないライセンスを含むSBOMで失敗する．運用テストで，保管した証跡を消そうとすると拒否されることを確かめる．
+- 証跡：SBOM(CycloneDX)をS3に保管する．以降の回の証跡もここに保管する．
+- 設計書の更新：運用方針に証跡の保管場所と期間を書く．
+- 既存のテストへの影響：第1回と第2回の証跡の保存先が，artifactからS3に変わる．
+- 学習者が行う道具の操作：`tofu plan`と`tofu apply`で変更を確かめる．
+
+## 第4回 SAST
+
+- 要求：よく知られた種類の脆弱性(インジェクションなど)を，コードの段階で見つける(ISO/IEC 27001 A.8.28，NIST SSDF PW.7)．
+- 仕込む問題：`apps/api`にSQLインジェクション，`apps/web`にXSSがある．1件は誤検知である．
+- 使用例：`mise run gate:sast`がTypeScriptとGoを検査する．誤検知は例外の一覧に載せる．
+- 追加するもの：
+  - `ops/items.yaml`：`sast`．
+  - `mise run gate:sast`：Semgrepでの検査．第2回と同じ例外の一覧を読む．
+- ゲートのテスト：脆弱なコードのfixtureで失敗し，直したコードで通る．
+- 証跡：Semgrepの結果(SARIF)をS3に保管する．
+- 設計書の更新：手順書の例外の申請に，誤検知の判断基準を足す．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：検出されたコードを直す．誤検知を例外として申請する．
+
+## 第5回 コンテナとIaCの設定検査
+
+- 要求：コンテナとクラウドの設定の誤りを，デプロイの前に見つける(ISO/IEC 27001 A.8.9)．
+- 仕込む問題：`apps/api`のDockerfileがrootで動く．`infra/`に公開設定のS3バケットがある．
+- 使用例：`mise run gate:image`がビルドしたイメージを検査する．`mise run gate:config`がDockerfileとOpenTofuのコードを検査する．
+- 追加するもの：
+  - `ops/items.yaml`：`container-image`と`iac-config`．
+  - `mise run gate:image`と`mise run gate:config`：Trivyでの検査．
+- ゲートのテスト：rootで動くDockerfileと，公開設定のバケットのfixtureで失敗する．
+- 証跡：検査結果をS3に保管する．
+- 設計書の更新：なし．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：Dockerfileに実行ユーザーを足す．バケットの公開設定を外す．
+
+## 第6回 ワークフローと成果物の完全性
+
+- 要求：CIで使う部品のすり替えを防ぐ．出荷したイメージが，このリポジトリのCIで作られたことを検証できるようにする(SLSA，NIST SSDF PS.2)．
+- 仕込む問題：ワークフローの`uses:`がタグで参照されている．
+- 使用例：`mise run gate:pinning`が，ハッシュで固定されていない`uses:`を検出する．CIはイメージをGHCRにpushし，署名とprovenanceを付ける．
+- 追加するもの：
+  - `ops/items.yaml`：`actions-pinning`と`artifact-signing`．
+  - `tools/ops/pinning.ts`と`mise run gate:pinning`．
+  - `.github/workflows/release.yml`：イメージのpush，cosignのキーレス署名，`actions/attest-build-provenance`．
+- ゲートのテスト：タグで参照したワークフローのfixtureで失敗し，ハッシュで固定すると通る．
+- 証跡：署名とprovenance．`gh attestation verify`の結果をS3に保管する．
+- 設計書の更新：手順書に，署名を検証する手順を書く．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：OIDCトークンはactでは発行されないので，この回はGitHubにpushして確かめる．
+
+## 第7回 監視とアラート
+
+- 要求：サービスの異常に気づき，決めた担当者へ知らせる(ISO/IEC 27001 A.8.16)．
+- 仕込む問題：APIのエラー率が上がっても，誰にも通知されない．
+- 使用例：`mise run up`でPrometheus，Alertmanager，Grafanaも起動する．APIのエラー率がしきい値を超えると，Alertmanagerが通知する．
+- 追加するもの：
+  - `ops/standards.yaml`：`monitoring.error_rate_threshold`．
+  - `ops/items.yaml`：`service-monitoring`．
+  - `apps/api`：`/metrics`のエンドポイント．
+  - `ops/monitoring/`：アラートのルール，Alertmanagerの通知先，Grafanaのダッシュボード．
+- 運用テスト：`promtool test rules`で，エラー率が上がるとアラートが発火し，下がると止むことを確かめる．
+- 証跡：アラートのルールとそのテストの結果．
+- 設計書の更新：手順書にアラートへの対応を書く．運用方針に通知先を足す．
+- 既存のテストへの影響：`ops:verify`が，運用項目の仕組みとしてアラートのルールも突き合わせるようになる．
+- 学習者が行う道具の操作：Grafanaでダッシュボードを確かめる．
+
+## 第8回 監査ログ
+
+- 要求：誰がいつ何をしたかを記録し，決めた期間だけ保管する(ISO/IEC 27001 A.8.15，SOC 2 CC7.2)．
+- 仕込む問題：ログインと権限の変更が，どこにも記録されない．
+- 使用例：APIが監査イベントを構造化ログとしてCloudWatch Logsに送る．保管期間は基準値から設定される．
+- 追加するもの：
+  - `ops/standards.yaml`：`audit_log.retention_days`と，記録するイベントの一覧．
+  - `ops/items.yaml`：`audit-logging`．
+  - `apps/api`：監査イベントの出力．
+  - `infra/logging.tf`：ロググループと保管期間．
+- 運用テスト：APIでログインして権限を変え，そのイベントをCloudWatch Logsで検索できることを確かめる．
+- 証跡：ロググループの設定と，監査ログの検索結果．
+- 設計書の更新：運用方針に，監査ログを閲覧できる人を書く．
+- 既存のテストへの影響：APIの単体テストに，監査イベントの出力を確かめるテストが加わる．
+- 学習者が行う道具の操作：CloudWatch Logsで監査ログを検索する．
+
+## 第9回 バックアップとリストア
+
+- 要求：データを決めた間隔でバックアップし，戻せることを定期的に確かめる(ISO/IEC 27001 A.8.13)．
+- 仕込む問題：データベースのバックアップがない．
+- 使用例：定期ジョブが`pg_dump`の結果をS3に保管する．`mise run ops:restore-test`が新しいデータベースに戻し，データを検証する．
+- 追加するもの：
+  - `ops/standards.yaml`：`backup.interval_hours`(RPO)と`backup.retention_days`．
+  - `ops/items.yaml`：`backup`と`restore-test`．
+  - `.github/workflows/backup.yml`：`schedule`で動くバックアップとリストアの訓練．
+- 運用テスト：バックアップから戻したデータベースの行数と内容が，元と一致することを確かめる．
+- 証跡：バックアップのファイルと，リストアの訓練の結果をS3に保管する．
+- 設計書の更新：手順書にリストアの手順を書く．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：`act schedule`で定期ジョブを手元で動かす．
+
+## 第10回 更新と定期的な再検査
+
+- 要求：依存関係とベースイメージを最新に保つ．リリース後に公開された脆弱性を見つける．サポートが終わる部品を使い続けない(ISO/IEC 27001 A.8.8，A.8.19)．
+- 仕込む問題：ベースイメージとGoのバージョンが古い．Node.jsのバージョンがサポート終了に近い．
+- 使用例：Renovateが更新のプルリクエストを作る．定期ジョブが保管済みのSBOMを再検査する．`mise run gate:eol`がサポート終了の近い部品を検出する．
+- 追加するもの：
+  - `ops/standards.yaml`：`eol.warn_days`．
+  - `ops/items.yaml`：`dependency-updates`，`sbom-rescan`，`eol-tracking`．
+  - `renovate.json`：更新の方針．
+  - `.github/workflows/rescan.yml`：保管済みのSBOMの再検査．
+  - `tools/ops/eol.ts`と`mise run gate:eol`．
+- ゲートのテスト：サポート終了が近いバージョンを書いた`mise.toml`のfixtureで失敗する．
+- 証跡：再検査の結果をS3に保管する．Renovateのプルリクエストの記録．
+- 設計書の更新：運用方針に，更新を取り込む方針を書く．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：Renovateをリポジトリに導入する．GitHubの機能なので，この回はGitHubで確かめる．
+
+## 第11回 権限の管理
+
+- 要求：権限を必要最小限にし，定期的に棚卸しする．認証情報を定期的に交換する(ISO/IEC 27001 A.5.15，A.5.18，A.8.2)．
+- 仕込む問題：`infra/`に，すべての操作を許すIAMポリシーがある．使われていないアクセスキーが残っている．
+- 使用例：`mise run gate:config`がIAMポリシーの過剰な権限を検出する．
+  `mise run ops:access-review`がIAMとGitHubの権限の棚卸しの報告を作る．
+  `mise run ops:rotate-db-password`がデータベースのパスワードを交換する．
+- 追加するもの：
+  - `ops/standards.yaml`：`access.review_interval_days`と`credentials.max_age_days`．
+  - `ops/items.yaml`：`least-privilege`，`access-review`，`credential-rotation`．
+  - `infra/`：GitHub Actions向けのOIDCの信頼ポリシー(対象のリポジトリとブランチを絞る)．
+- ゲートのテスト：すべての操作を許すポリシーと，対象を絞らない信頼ポリシーのfixtureで失敗する．
+- 証跡：棚卸しの報告(IAMの認証情報レポート，CloudTrailの操作記録，GitHubのメンバー一覧)をS3に保管する．
+- 設計書の更新：手順書に棚卸しと交換の手順を書く．運用方針に，権限を承認する人を書く．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：GitHubのメンバーとチームの権限を確かめる．
+
+## 第12回 脆弱性のトリアージ
+
+- 要求：見つかった脆弱性を重大度ごとの期限内に直す．
+  影響がない脆弱性はその根拠を示す．
+  期限を過ぎたら上位者に知らせる(ISO/IEC 27001 A.8.8，SOC 2 CC7.4)．
+- 仕込む問題：再検査で見つかった脆弱性が，期限を過ぎても残っている．
+- 使用例：`mise run gate:sla`が，期限を過ぎた未対応の脆弱性を検出する．期限を過ぎるとAlertmanagerが上位者に通知する．影響のない脆弱性は，例外の一覧からOpenVEXの文書として出力される．
+- 追加するもの：
+  - `ops/standards.yaml`：`vulnerability.sla_days`(重大度ごとの日数)．
+  - `ops/items.yaml`：`vulnerability-triage`と`escalation`．
+  - `ops/exceptions.yaml`：例外に，VEXの状態(`not_affected`など)と根拠を足す．
+  - `mise run gate:sla`：初めて検出された日を記録し，基準値と比べる．
+- リファクタリング：第2回の，例外の一覧からTrivyの除外設定を作る処理を，OpenVEXの文書を作る処理に置き換える．
+- ゲートのテスト：期限を過ぎた検出結果のfixtureで失敗する．
+- 証跡：OpenVEXの文書と，トリアージの結果をS3に保管する．
+- 設計書の更新：運用方針にエスカレーションの経路を書く．手順書にトリアージの手順を書く．
+- 既存のテストへの影響：第2回と第4回のゲートのテストで，例外の指定がOpenVEXの形に変わる．
+- 学習者が行う道具の操作：検出された脆弱性をトリアージし，直すか例外にするかを決める．
+
+## 第13回 組織への展開
+
+- 要求：ほかのリポジトリでも同じ基準と検査を使えるようにする．検査を通っていないイメージはデプロイしない(NIST SSDF PO.1，SLSA)．
+- 仕込む問題：デプロイのジョブが，署名を検証せずにイメージを使っている．
+- 使用例：ゲートのジョブを`.github/workflows/gates.yml`のreusable workflowにまとめ，`ci.yml`はそれを呼ぶ．
+  `mise run gate:policy`がconftestで組織の共通ルールを検査する．
+  デプロイの前に署名を検証する．
+- 追加するもの：
+  - `ops/items.yaml`：`shared-policy`と`deploy-verification`．
+  - `policy/`：conftestのルール．例えば，すべての運用項目に証跡があること，すべてのワークフローがゲートのreusable workflowを呼ぶこと．
+  - `.github/workflows/gates.yml`．
+  - `.github/workflows/deploy.yml`：イメージを使う前に署名を検証する．
+- リファクタリング：`ci.yml`のゲートのジョブを`gates.yml`に移す．`ops/standards.yaml`を組織で共通に使う場所へ移す前提で，読み込む場所を1か所にまとめる．
+- ゲートのテスト：証跡のない運用項目と，署名のないイメージのfixtureで失敗する．
+- 証跡：デプロイ前の検証結果をS3に保管する．
+- 設計書の更新：運用方針に，共通の基準を変えるときの承認の流れを書く．
+- 既存のテストへの影響：ゲートのテストは変わらない．`ops:verify`の突き合わせの対象が`gates.yml`に変わる．
+- 学習者が行う道具の操作：`mise run ci`でreusable workflowの呼び出しを確かめる．
+
+## 第14回 定期報告とチェックシート
+
+- 要求：運用の状況を定期的に報告する．顧客や監査の質問に，証跡を示して答える(SOC 2 CC2.2，ISO/IEC 27001 A.5.35)．
+- 仕込む問題：なし．これまでの仕組みと証跡をまとめる．
+- 使用例：「完成したときの姿」のとおり，`mise run ops:report`で月次報告を，`mise run ops:checksheet`でチェックシートの回答の下書きを作る．
+- 追加するもの：
+  - `ops/items.yaml`：`monthly-report`と`checksheet-response`．各運用項目の要求に，チェックシートの質問を対応づける．
+  - `tools/ops/report.ts`と`tools/ops/checksheet.ts`．
+  - `.github/workflows/scorecard.yml`：OpenSSF Scorecard．
+  - `checksheets/sample.yaml`：講座で用意するチェックシートの例．
+- 運用テスト：証跡の欠けた運用項目があると，月次報告がそれを示すことを確かめる．
+- 証跡：月次報告とScorecardの結果をS3に保管する．
+- 設計書の更新：運用方針に，報告の宛先と頻度を書く．
+- 既存のテストへの影響：なし．
+- 学習者が行う道具の操作：自分のリポジトリでScorecardを動かす．チェックシートの回答を見直す．
