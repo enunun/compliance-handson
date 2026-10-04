@@ -1,0 +1,133 @@
+diff --git a/app/apps/api/internal/server/server.go b/app/apps/api/internal/server/server.go
+index c44f45f..d962241 100644
+--- a/app/apps/api/internal/server/server.go
++++ b/app/apps/api/internal/server/server.go
+@@ -4,9 +4,11 @@ package server
+ import (
+ 	"context"
+ 	"crypto/rand"
++	"crypto/sha1"
+ 	"encoding/hex"
+ 	"encoding/json"
+ 	"errors"
++	"fmt"
+ 	"net/http"
+ 	"strconv"
+ 	"strings"
+@@ -63,7 +65,13 @@ func login(s store.Store) http.HandlerFunc {
+ 
+ func listNotes(s store.Store) http.HandlerFunc {
+ 	return func(w http.ResponseWriter, r *http.Request) {
+-		notes, err := s.ListNotes(r.Context(), currentUser(r).ID)
++		var notes []store.Note
++		var err error
++		if q := r.URL.Query().Get("q"); q != "" {
++			notes, err = s.SearchNotes(r.Context(), currentUser(r).ID, q)
++		} else {
++			notes, err = s.ListNotes(r.Context(), currentUser(r).ID)
++		}
+ 		if err != nil {
+ 			writeError(w, http.StatusInternalServerError, "could not list notes")
+ 			return
+@@ -71,6 +79,9 @@ func listNotes(s store.Store) http.HandlerFunc {
+ 		if notes == nil {
+ 			notes = []store.Note{}
+ 		}
++		body, _ := json.Marshal(notes)
++		// 一覧が変わっていなければ，ブラウザのキャッシュを使えるようにする．
++		w.Header().Set("ETag", fmt.Sprintf(`"%x"`, sha1.Sum(body)))
+ 		writeJSON(w, http.StatusOK, notes)
+ 	}
+ }
+diff --git a/app/apps/api/internal/server/server_test.go b/app/apps/api/internal/server/server_test.go
+index ea1ee29..540f8ac 100644
+--- a/app/apps/api/internal/server/server_test.go
++++ b/app/apps/api/internal/server/server_test.go
+@@ -95,6 +95,17 @@ func (m *memStore) ListNotes(_ context.Context, ownerID int64) ([]store.Note, er
+ 	return out, nil
+ }
+ 
++func (m *memStore) SearchNotes(ctx context.Context, ownerID int64, query string) ([]store.Note, error) {
++	notes, _ := m.ListNotes(ctx, ownerID)
++	var out []store.Note
++	for _, n := range notes {
++		if strings.Contains(n.Body, query) {
++			out = append(out, n)
++		}
++	}
++	return out, nil
++}
++
+ func (m *memStore) CreateNote(_ context.Context, ownerID int64, body string) (store.Note, error) {
+ 	m.mu.Lock()
+ 	defer m.mu.Unlock()
+diff --git a/app/apps/api/internal/store/postgres.go b/app/apps/api/internal/store/postgres.go
+index d1426f4..7035aac 100644
+--- a/app/apps/api/internal/store/postgres.go
++++ b/app/apps/api/internal/store/postgres.go
+@@ -3,6 +3,7 @@ package store
+ import (
+ 	"context"
+ 	"errors"
++	"fmt"
+ 
+ 	"github.com/jackc/pgx/v5"
+ 	"github.com/jackc/pgx/v5/pgxpool"
+@@ -107,6 +108,23 @@ func (p *Postgres) ListNotes(ctx context.Context, ownerID int64) ([]Note, error)
+ 	})
+ }
+ 
++func (p *Postgres) SearchNotes(ctx context.Context, ownerID int64, query string) ([]Note, error) {
++	sql := fmt.Sprintf(
++		"SELECT id, owner_id, body, created_at FROM notes WHERE owner_id = %d AND body LIKE '%%%s%%' ORDER BY id",
++		ownerID, query)
++	rows, err := p.pool.Query(ctx, sql)
++	if err != nil {
++		return nil, err
++	}
++	return pgx.CollectRows(rows, scanNote)
++}
++
++func scanNote(r pgx.CollectableRow) (Note, error) {
++	var n Note
++	err := r.Scan(&n.ID, &n.OwnerID, &n.Body, &n.CreatedAt)
++	return n, err
++}
++
+ func (p *Postgres) CreateNote(ctx context.Context, ownerID int64, body string) (Note, error) {
+ 	n := Note{OwnerID: ownerID, Body: body}
+ 	err := p.pool.QueryRow(ctx,
+diff --git a/app/apps/api/internal/store/store.go b/app/apps/api/internal/store/store.go
+index 72754fb..1ed2cab 100644
+--- a/app/apps/api/internal/store/store.go
++++ b/app/apps/api/internal/store/store.go
+@@ -41,5 +41,6 @@ type Store interface {
+ 	CreateSession(ctx context.Context, userID int64, token string) error
+ 	SetRole(ctx context.Context, userID int64, role Role) error
+ 	ListNotes(ctx context.Context, ownerID int64) ([]Note, error)
++	SearchNotes(ctx context.Context, ownerID int64, query string) ([]Note, error)
+ 	CreateNote(ctx context.Context, ownerID int64, body string) (Note, error)
+ }
+diff --git a/app/apps/web/src/app.tsx b/app/apps/web/src/app.tsx
+index 65fa099..1d9f2b7 100644
+--- a/app/apps/web/src/app.tsx
++++ b/app/apps/web/src/app.tsx
+@@ -1,6 +1,7 @@
+ import { type Note, noteInputSchema } from "@app/shared";
+ import { Hono } from "hono";
+ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
++import { raw } from "hono/html";
+ import truncate from "lodash/truncate.js";
+ 
+ type Options = {
+@@ -122,7 +123,9 @@ function NotesPage({ notes }: { notes: Note[] }) {
+       </form>
+       <ul>
+         {notes.map((note) => (
+-          <li>{truncate(note.body, { length: 100 })}</li>
++          <li>
++            {raw(truncate(note.body, { length: 100 }).replaceAll("\n", "<br>"))}
++          </li>
+         ))}
+       </ul>
+     </Layout>

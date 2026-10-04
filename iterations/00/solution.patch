@@ -1,0 +1,764 @@
+diff --git a/.github/CODEOWNERS b/.github/CODEOWNERS
+new file mode 100644
+index 0000000..c4fc602
+--- /dev/null
++++ b/.github/CODEOWNERS
+@@ -0,0 +1,5 @@
++# 変更に承認が要るファイルと，承認する人．
++# @security-lead は，自分のGitHubのアカウントかチームに置き換える．
++
++/app/ops/standards.yaml @security-lead
++/.github/CODEOWNERS @security-lead
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..2cc62c0
+--- /dev/null
++++ b/.github/workflows/ci.yml
+@@ -0,0 +1,20 @@
++name: ci
++
++on:
++  pull_request:
++  push:
++    branches: [main]
++
++permissions:
++  contents: read
++
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@v5
++      - uses: jdx/mise-action@v3
++      - run: mise run check
+diff --git a/app/mise.toml b/app/mise.toml
+index 61cecd7..2fbc273 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -51,9 +51,18 @@ description = "items.yaml から運用項目一覧(ops/items.md)を作る"
+ depends = ["install"]
+ run = "pnpm exec tsx tools/ops/render.ts"
+ 
++[tasks."ops:evidence:change"]
++description = "mainのブランチ保護の設定を，証跡としてout/evidence/に保存する"
++run = """
++mkdir -p out/evidence/change
++gh api "repos/{owner}/{repo}/branches/main/protection" \
++  > "out/evidence/change/branch-protection-$(date +%Y%m%d).json"
++echo "wrote out/evidence/change/branch-protection-$(date +%Y%m%d).json"
++"""
++
+ [tasks.check]
+ description = "題材の検査をまとめて実行する(CIと同じ)"
+-depends = ["lint", "test"]
++depends = ["lint", "test", "test:gates", "ops:verify"]
+ 
+ [tasks.up]
+ description = "MiniStackの上に本番の環境を作る"
+diff --git a/app/ops/items.md b/app/ops/items.md
+new file mode 100644
+index 0000000..5531319
+--- /dev/null
++++ b/app/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1<br>ISO27001:A.8.32 | ci.yml: check | ブランチ保護の設定(JSON)と，プルリクエストのレビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+new file mode 100644
+index 0000000..639c42d
+--- /dev/null
++++ b/app/ops/items.yaml
+@@ -0,0 +1,15 @@
++# yaml-language-server: $schema=./schema/items.schema.json
++# 運用項目．人が読む一覧(items.md)は mise run ops:render で生成する．
++
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1, ISO27001:A.8.32]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: ブランチ保護の設定(JSON)と，プルリクエストのレビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index f7dc4de..09f3981 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -1,11 +1,18 @@
+ # 運用方針
+ 
+-<!-- 題材のSaaSを運用する体制と，判断の基準を書く．YAMLで表せないことだけを書く． -->
++題材のSaaSを運用する体制と，判断の基準を書く．
++基準値は standards.yaml，運用項目は items.yaml に書き，ここにはYAMLで表せないことだけを書く．
+ 
+ ## 体制と役割
+ 
+-<!-- 役割ごとに，担当と責任を表にする．誰が変更を作り，誰が承認し，誰が設定を管理するか． -->
++| 役割 | 担当 | 責任 |
++| --- | --- | --- |
++| 開発チーム | リポジトリの書き込み権限を持つ全員 | 変更を作り，プルリクエストでレビューを受ける．運用項目(items.yaml)を保つ． |
++| セキュリティ責任者 | CODEOWNERSの @security-lead | 基準値(standards.yaml)の変更を承認する．緊急変更を事後に確認する． |
++| リポジトリ管理者 | GitHubのadmin権限を持つ人 | ブランチ保護の設定を保つ．緊急変更のときだけ保護を外す． |
+ 
+ ## 変更の流れ
+ 
+-<!-- mainに変更が入るまでの条件と，待てないときの手順への参照を書く． -->
++mainへの変更は，すべてプルリクエストで行う．
++mainに入るには，standards.yaml の `change.required_approvals` 人の承認と，CIの `check` ジョブの成功が要る．
++障害の復旧などで待てないときは，[緊急変更の手順](runbooks/emergency-change.md)に従う．
+diff --git a/app/ops/runbooks/emergency-change.md b/app/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..f0325ee
+--- /dev/null
++++ b/app/ops/runbooks/emergency-change.md
+@@ -0,0 +1,20 @@
++# 緊急変更
++
++障害の復旧などで，通常の承認を待てないときの手順．
++
++## 実施できる人
++
++リポジトリ管理者．実施したら，その日のうちにセキュリティ責任者へ知らせる．
++
++## 手順
++
++1. 障害の内容と，緊急変更が要る理由をIssueに書く．
++2. 変更をプルリクエストにし，CIの `check` ジョブが通ることを確かめる．
++3. 承認を待たずにマージする場合は，管理者の権限でマージする．ブランチ保護の設定は変えない．
++4. マージしたプルリクエストに，事後のレビューを依頼する．
++5. Issueに，実施した時刻，実施した人，事後のレビューの結果を書いて閉じる．
++
++## 証跡
++
++- Issueと，マージしたプルリクエスト．
++- 事後のレビューの記録．
+diff --git a/app/ops/schema/items.schema.json b/app/ops/schema/items.schema.json
+new file mode 100644
+index 0000000..230fc54
+--- /dev/null
++++ b/app/ops/schema/items.schema.json
+@@ -0,0 +1,80 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "title": "運用項目",
++  "type": "object",
++  "additionalProperties": false,
++  "required": ["items"],
++  "properties": {
++    "items": {
++      "type": "array",
++      "items": { "$ref": "#/$defs/item" }
++    }
++  },
++  "$defs": {
++    "item": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "id",
++        "title",
++        "category",
++        "requirements",
++        "mechanisms",
++        "evidence",
++        "timing",
++        "actor"
++      ],
++      "properties": {
++        "id": {
++          "description": "運用項目の識別子(英小文字とハイフン)",
++          "type": "string",
++          "pattern": "^[a-z][a-z0-9-]*$"
++        },
++        "title": { "type": "string", "minLength": 1 },
++        "category": {
++          "description": "『運用設計の教科書』の3分類",
++          "enum": ["業務運用", "基盤運用", "運用管理"]
++        },
++        "requirements": {
++          "description": "根拠になる規格の要求(例：SOC2:CC8.1)",
++          "type": "array",
++          "minItems": 1,
++          "items": { "type": "string" }
++        },
++        "mechanisms": {
++          "description": "要求を満たす仕組み",
++          "type": "array",
++          "minItems": 1,
++          "items": { "$ref": "#/$defs/mechanism" }
++        },
++        "evidence": {
++          "description": "仕組みが動いたことを示す記録",
++          "type": "string",
++          "minLength": 1
++        },
++        "timing": {
++          "description": "定常(日次，変更ごとなど)か非定常(発生時)か",
++          "type": "string",
++          "minLength": 1
++        },
++        "actor": { "enum": ["自動", "人"] },
++        "runbook": {
++          "description": "手順書のパス(ops/からの相対)",
++          "type": "string"
++        }
++      }
++    },
++    "mechanism": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["workflow", "job"],
++      "properties": {
++        "workflow": {
++          "description": ".github/workflows/のファイル名",
++          "type": "string"
++        },
++        "job": { "description": "ワークフローのジョブ名", "type": "string" }
++      }
++    }
++  }
++}
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+new file mode 100644
+index 0000000..92c2bb3
+--- /dev/null
++++ b/app/ops/schema/standards.schema.json
+@@ -0,0 +1,22 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "title": "基準値",
++  "type": "object",
++  "additionalProperties": false,
++  "properties": {
++    "change": {
++      "description": "変更管理の基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["required_approvals"],
++      "properties": {
++        "required_approvals": {
++          "description": "mainへの変更に要る承認の数",
++          "type": "integer",
++          "minimum": 1
++        }
++      }
++    }
++  },
++  "required": ["change"]
++}
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+new file mode 100644
+index 0000000..a02bf0d
+--- /dev/null
++++ b/app/ops/standards.yaml
+@@ -0,0 +1,5 @@
++# yaml-language-server: $schema=./schema/standards.schema.json
++# 基準値．変更にはセキュリティ責任者の承認が要る(.github/CODEOWNERS)．
++
++change:
++  required_approvals: 1
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/items.md b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/items.md
+new file mode 100644
+index 0000000..1aa6a65
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/items.yaml
+new file mode 100644
+index 0000000..ce7b959
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+new file mode 100644
+index 0000000..04e9f8b
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -0,0 +1,2 @@
++change:
++  required_approvals: 0
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/invalid-standards/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/items.md b/app/tests/gates/fixtures/ops-verify/missing-job/ops/items.md
+new file mode 100644
+index 0000000..1aa6a65
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/items.yaml
+new file mode 100644
+index 0000000..ce7b959
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/missing-job/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+new file mode 100644
+index 0000000..0064975
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -0,0 +1,2 @@
++change:
++  required_approvals: 1
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/missing-job/workflows/ci.yml
+new file mode 100644
+index 0000000..0bcc52b
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/items.md b/app/tests/gates/fixtures/ops-verify/stale-list/ops/items.md
+new file mode 100644
+index 0000000..10dfa39
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更の管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/items.yaml
+new file mode 100644
+index 0000000..ce7b959
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/stale-list/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+new file mode 100644
+index 0000000..0064975
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -0,0 +1,2 @@
++change:
++  required_approvals: 1
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/stale-list/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/items.md b/app/tests/gates/fixtures/ops-verify/valid/ops/items.md
+new file mode 100644
+index 0000000..1aa6a65
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/items.yaml
+new file mode 100644
+index 0000000..ce7b959
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/valid/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+new file mode 100644
+index 0000000..0064975
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -0,0 +1,2 @@
++change:
++  required_approvals: 1
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/valid/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/valid/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/ops-verify.test.ts b/app/tests/gates/ops-verify.test.ts
+new file mode 100644
+index 0000000..f5f58a2
+--- /dev/null
++++ b/app/tests/gates/ops-verify.test.ts
+@@ -0,0 +1,41 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/ops-verify/<name> の運用項目を ops:verify で検証する． */
++function verify(name: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/ops/verify.ts",
++    "--ops",
++    fixture("ops-verify", name, "ops"),
++    "--workflows",
++    fixture("ops-verify", name, "workflows"),
++  ]);
++}
++
++describe("ops:verify", () => {
++  it("正しい運用項目では通る", () => {
++    const result = verify("valid");
++    expect(result.output).toContain("ops: ok");
++    expect(result.status).toBe(0);
++  });
++
++  it("仕組みのジョブがワークフローになければ失敗する", () => {
++    const result = verify("missing-job");
++    expect(result.output).toContain("ci.yml にジョブ check がない");
++    expect(result.status).toBe(1);
++  });
++
++  it("基準値がスキーマに合わなければ失敗する", () => {
++    const result = verify("invalid-standards");
++    expect(result.output).toContain("/change/required_approvals");
++    expect(result.status).toBe(1);
++  });
++
++  it("運用項目一覧が items.yaml と合わなければ失敗する", () => {
++    const result = verify("stale-list");
++    expect(result.output).toContain("mise run ops:render");
++    expect(result.status).toBe(1);
++  });
++});
+diff --git a/app/tools/ops/render.test.ts b/app/tools/ops/render.test.ts
+new file mode 100644
+index 0000000..5957d5b
+--- /dev/null
++++ b/app/tools/ops/render.test.ts
+@@ -0,0 +1,43 @@
++import { describe, expect, it } from "vitest";
++import { render } from "./render.ts";
++
++describe("render", () => {
++  it("運用項目を1行ずつ表にする", () => {
++    const md = render({
++      items: [
++        {
++          id: "change-management",
++          title: "変更管理",
++          category: "運用管理",
++          requirements: ["SOC2:CC8.1", "ISO27001:A.8.32"],
++          mechanisms: [{ workflow: "ci.yml", job: "check" }],
++          evidence: "レビュー記録",
++          timing: "定常(変更ごと)",
++          actor: "自動",
++          runbook: "runbooks/emergency-change.md",
++        },
++      ],
++    });
++    expect(md).toContain(
++      "| change-management | 変更管理 | 運用管理 | SOC2:CC8.1<br>ISO27001:A.8.32 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |",
++    );
++  });
++
++  it("手順書のない項目は手順書の列を空にする", () => {
++    const md = render({
++      items: [
++        {
++          id: "x",
++          title: "X",
++          category: "基盤運用",
++          requirements: ["R"],
++          mechanisms: [{ workflow: "ci.yml", job: "x" }],
++          evidence: "E",
++          timing: "T",
++          actor: "人",
++        },
++      ],
++    });
++    expect(md).toContain("| 人 |  |");
++  });
++});
+diff --git a/app/tools/ops/render.ts b/app/tools/ops/render.ts
+index 8905aa7..50f9649 100644
+--- a/app/tools/ops/render.ts
++++ b/app/tools/ops/render.ts
+@@ -1,11 +1,44 @@
+-import type { ItemsFile } from "./items.ts";
++import { writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { type ItemsFile, readYaml } from "./items.ts";
++
++const header = `<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++`;
+ 
+ /** 運用項目一覧のMarkdownを作る． */
+-export function render(_items: ItemsFile): string {
+-  throw new Error("第0回で実装する");
++export function render({ items }: ItemsFile): string {
++  const rows = items.map((item) =>
++    [
++      item.id,
++      item.title,
++      item.category,
++      item.requirements.join("<br>"),
++      item.mechanisms.map((m) => `${m.workflow}: ${m.job}`).join("<br>"),
++      item.evidence,
++      item.timing,
++      item.actor,
++      item.runbook ? `[手順書](${item.runbook})` : "",
++    ].join(" | "),
++  );
++  return [
++    header,
++    "| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |",
++    "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
++    ...rows.map((row) => `| ${row} |`),
++    "",
++  ].join("\n");
+ }
+ 
+ /** 一覧のファイルの場所． */
+-export function renderedPath(_opsDir: string): string {
+-  throw new Error("第0回で実装する");
++export function renderedPath(opsDir: string): string {
++  return join(opsDir, "items.md");
++}
++
++if (import.meta.main) {
++  const opsDir = "ops";
++  const items = readYaml(join(opsDir, "items.yaml")) as ItemsFile;
++  writeFileSync(renderedPath(opsDir), render(items));
++  console.log(`wrote ${renderedPath(opsDir)}`);
+ }
+diff --git a/app/tools/ops/verify.ts b/app/tools/ops/verify.ts
+index ac912c4..b0b030d 100644
+--- a/app/tools/ops/verify.ts
++++ b/app/tools/ops/verify.ts
+@@ -1,3 +1,10 @@
++import { existsSync, readFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { Ajv2020 } from "ajv/dist/2020.js";
++import { type ItemsFile, readYaml } from "./items.ts";
++import { render, renderedPath } from "./render.ts";
++
+ /** 検証で見つかった問題． */
+ export type Problem = { file: string; message: string };
+ 
+@@ -11,6 +18,92 @@ export type VerifyOptions = {
+ };
+ 
+ /** 基準値と運用項目を検証し，見つかった問題を返す． */
+-export function verify(_options: VerifyOptions): Problem[] {
+-  throw new Error("第0回で実装する");
++export function verify(options: VerifyOptions): Problem[] {
++  const problems: Problem[] = [];
++  const ajv = new Ajv2020({ allErrors: true });
++
++  const validate = (name: string): unknown => {
++    const file = join(options.opsDir, `${name}.yaml`);
++    const data = readYaml(file);
++    const schema = JSON.parse(
++      readFileSync(join(options.schemaDir, `${name}.schema.json`), "utf8"),
++    );
++    if (!ajv.validate(schema, data)) {
++      for (const error of ajv.errors ?? []) {
++        problems.push({
++          file,
++          message: `${error.instancePath || "/"} ${error.message}`,
++        });
++      }
++      return undefined;
++    }
++    return data;
++  };
++
++  validate("standards");
++  const items = validate("items") as ItemsFile | undefined;
++  if (!items) {
++    return problems;
++  }
++
++  const itemsFile = join(options.opsDir, "items.yaml");
++  for (const item of items.items) {
++    for (const { workflow, job } of item.mechanisms) {
++      const path = join(options.workflowsDir, workflow);
++      if (!existsSync(path)) {
++        problems.push({
++          file: itemsFile,
++          message: `${item.id}: ワークフロー ${workflow} がない`,
++        });
++        continue;
++      }
++      const jobs = (readYaml(path) as { jobs?: Record<string, unknown> }).jobs;
++      if (!jobs || !(job in jobs)) {
++        problems.push({
++          file: itemsFile,
++          message: `${item.id}: ${workflow} にジョブ ${job} がない`,
++        });
++      }
++    }
++    if (item.runbook && !existsSync(join(options.opsDir, item.runbook))) {
++      problems.push({
++        file: itemsFile,
++        message: `${item.id}: 手順書 ${item.runbook} がない`,
++      });
++    }
++  }
++
++  const rendered = renderedPath(options.opsDir);
++  if (
++    !existsSync(rendered) ||
++    readFileSync(rendered, "utf8") !== render(items)
++  ) {
++    problems.push({
++      file: rendered,
++      message: "items.yaml と合わない．mise run ops:render で作り直す",
++    });
++  }
++  return problems;
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      ops: { type: "string", default: "ops" },
++      workflows: { type: "string", default: "../.github/workflows" },
++      schema: { type: "string", default: "ops/schema" },
++    },
++  });
++  const problems = verify({
++    opsDir: values.ops,
++    workflowsDir: values.workflows,
++    schemaDir: values.schema,
++  });
++  for (const { file, message } of problems) {
++    console.error(`${file}: ${message}`);
++  }
++  if (problems.length > 0) {
++    process.exit(1);
++  }
++  console.log("ops: ok");
+ }

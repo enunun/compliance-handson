@@ -1,33 +1,45 @@
+# 講座で使う道具の版．教材を作る人と学習者が同じ版を使う．
+# LTSのあるものはLTS，Goはひとつ前のマイナー版，それ以外は安定版の最新を選ぶ．
+# 版を変えたら`mise lock`でmise.lockを作り直し，一緒にコミットする．
 [tools]
 rtk = "0.49.0"
 lefthook = "2.1.14"
-node = "26.10.0"
-pnpm = "12.6.0"
-# ここにプロジェクトが使う言語・ツールを追加する(例: node = "24"，rust = "1.98.1")．
-# 版を固定する場合はここで`mise lock`を実行し，生成されたmise.lockもコミットする．
+node = "24.21.0"
+pnpm = "12.9.0"
+go = "1.26.8"
+opentofu = "1.13.1"
+uv = "0.12.22"
+python = "3.13.16"
+"pipx:awscli" = "1.46.1"
+trivy = "0.75.0"
+gitleaks = "8.30.1"
+semgrep = "1.179.0"
+cosign = "3.1.3"
+conftest = "0.71.0"
+promtool = "3.5.5"
+"aqua:prometheus/alertmanager" = "0.34.1"
+act = "0.2.89"
+gh = "2.102.0"
 
-# 実際に利用する場合には以下を有効にする
-# [settings]
-# lockfile = true
+[settings]
+lockfile = true
 
 [tasks.install]
 description = "依存パッケージをインストールする"
 run = "pnpm install --frozen-lockfile"
 
 [tasks.fmt]
-description = "コードと文書を整形する"
+description = "文書を整形する(textlintとmarkdownlintで直せるものを直す)"
 depends = ["install"]
-run = "echo 'TODO: add your formatter'"
+run = [
+  "git ls-files '*.md' -z | xargs -0 -r pnpm exec textlint --fix",
+  "git ls-files '*.md' -z | xargs -0 -r pnpm exec markdownlint-cli2 --fix",
+]
 
 [tasks.lint]
 description = "すべてのリントを実行する"
 depends = ["install"]
 run = "pnpm lint"
-
-[tasks.test]
-description = "単体テストを実行する"
-depends = ["install"]
-run = "echo 'TODO: add your test command'"
 
 [tasks.hooks]
 description = "Gitのフック(コミット時の検査)を設定する"
@@ -36,7 +48,21 @@ run = "lefthook install"
 [tasks.setup]
 description = "開発環境を整える(依存パッケージ，Gitのフックなど)"
 depends = ["install", "hooks"]
+run = "mise -C app run install"
 
 [tasks.check]
-description = "整形の検査，リント，単体テストなどをまとめて実行する(CIと同じ)"
-depends = ["lint", "test"]
+description = "文書を検査する(題材の検査は mise -C app run check)"
+depends = ["lint"]
+
+[tasks."iteration:start"]
+description = "第N回で検出する問題を，自分のコードに当てる(例：mise run iteration:start 1)"
+run = "scripts/iteration.sh start"
+
+[tasks."iteration:solution"]
+description = "第N回の解答を，自分のコードに当てる(例：mise run iteration:solution 1)"
+run = "scripts/iteration.sh solution"
+
+[tasks."iterations:verify"]
+description = "各回のパッチを順に当て，すべての解答で題材の検査が通ることを確かめる"
+run = "scripts/verify-iterations.sh"
+

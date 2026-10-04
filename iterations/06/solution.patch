@@ -1,0 +1,453 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 9d11e10..d4a3e92 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -15,8 +15,8 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: jdx/mise-action@v3
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run check:code
+ 
+   secrets:
+@@ -25,13 +25,13 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+         with:
+           # 履歴全体を検査するので，すべてのコミットを取得する．
+           fetch-depth: 0
+-      - uses: jdx/mise-action@v3
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:secrets
+-      - uses: actions/upload-artifact@v4
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+           name: evidence-secrets
+@@ -43,10 +43,10 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: jdx/mise-action@v3
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:sca
+-      - uses: actions/upload-artifact@v4
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+           name: evidence-sca
+@@ -58,8 +58,8 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: jdx/mise-action@v3
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:exceptions
+ 
+   sbom:
+@@ -68,10 +68,10 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: jdx/mise-action@v3
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:license
+-      - uses: actions/upload-artifact@v4
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+           name: evidence-sbom
+@@ -83,10 +83,10 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: jdx/mise-action@v3
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:sast
+-      - uses: actions/upload-artifact@v4
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+           name: evidence-sast
+@@ -98,10 +98,10 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: jdx/mise-action@v3
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:image
+-      - uses: actions/upload-artifact@v4
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+           name: evidence-image
+@@ -113,15 +113,25 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
+-      - uses: jdx/mise-action@v3
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:config
+-      - uses: actions/upload-artifact@v4
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+           name: evidence-config
+           path: app/out/evidence/
+ 
++  pinning:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:pinning
++
+   # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
+   # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
+   evidence:
+@@ -144,11 +154,11 @@ jobs:
+       run:
+         working-directory: app
+     steps:
+-      - uses: actions/checkout@v5
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+       # S3 Controlは，アカウントIDを付けたホスト名で接続する．
+       - run: echo "127.0.0.1 000000000000.localhost" | sudo tee -a /etc/hosts
+-      - uses: jdx/mise-action@v3
+-      - uses: actions/download-artifact@v4
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+         with:
+           pattern: evidence-*
+           path: app/out/evidence/
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+new file mode 100644
+index 0000000..6febd8c
+--- /dev/null
++++ b/.github/workflows/release.yml
+@@ -0,0 +1,52 @@
++name: release
++
++# v で始まるタグをpushすると，APIのイメージを作り，署名とprovenanceを付けてGHCRに置く．
++on:
++  push:
++    tags: ["v*"]
++
++permissions:
++  contents: read
++
++jobs:
++  release:
++    runs-on: ubuntu-latest
++    permissions:
++      contents: read
++      packages: write # GHCRへのpush
++      id-token: write # OIDCのトークン(キーレスの署名とprovenance)
++      attestations: write # provenanceの保存
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - name: GHCRにログインする
++        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
++      - name: イメージを作ってpushする
++        id: push
++        run: |
++          image="$(echo "ghcr.io/${GITHUB_REPOSITORY}/api" | tr '[:upper:]' '[:lower:]')"
++          docker build -t "${image}:${GITHUB_REF_NAME}" apps/api
++          docker push "${image}:${GITHUB_REF_NAME}"
++          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${image}:${GITHUB_REF_NAME}" | cut -d@ -f2)"
++          echo "image=${image}" >> "$GITHUB_OUTPUT"
++          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
++      - name: キーレスで署名する
++        run: cosign sign --yes "${{ steps.push.outputs.image }}@${{ steps.push.outputs.digest }}"
++      - name: provenanceを付ける
++        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
++        with:
++          subject-name: ${{ steps.push.outputs.image }}
++          subject-digest: ${{ steps.push.outputs.digest }}
++          push-to-registry: true
++      - name: 署名とprovenanceを検証し，証跡に残す
++        env:
++          GH_TOKEN: ${{ github.token }}
++        run: mise run release:verify "${{ steps.push.outputs.image }}@${{ steps.push.outputs.digest }}"
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-release
++          path: app/out/evidence/
+diff --git a/app/mise.toml b/app/mise.toml
+index 5bdf8dd..d47c9d2 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -81,6 +81,15 @@ description = "DockerfileとOpenTofuのコードの設定の誤りを検査す
+ depends = ["install"]
+ run = "pnpm exec tsx tools/gates/config.ts"
+ 
++[tasks."gate:pinning"]
++description = "ワークフローのactionがハッシュで固定されているかを検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/pinning.ts"
++
++[tasks."release:verify"]
++description = "イメージの署名とprovenanceを検証し，証跡に残す(引数は <イメージ>@<ダイジェスト>)"
++run = "tools/gates/verify-image.sh"
++
+ [tasks.sbom]
+ description = "コンポーネントごとのSBOM(CycloneDX)を作る"
+ depends = ["install"]
+@@ -120,7 +129,7 @@ depends = ["lint", "test", "test:gates", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 9783b17..ace28e7 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -14,3 +14,5 @@
+ | sast | コードの脆弱性検査(SAST) | 基盤運用 | ISO27001:A.8.28<br>SSDF:PW.7 | ci.yml: sast | Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
+ | container-image | コンテナイメージの検査 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.9 | ci.yml: image | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
+ | iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | ci.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
++| actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
++| artifact-signing | 成果物の署名とprovenance | 基盤運用 | SLSA:Build-L2<br>SSDF:PS.2 | release.yml: release | 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON) | 定常(リリースごと) | 自動 | [手順書](runbooks/verify-image.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 2851dbd..b753f92 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -116,3 +116,26 @@ items:
+     evidence: Trivyの結果(JSON)を証跡の保管場所に保管
+     timing: 定常(変更ごと)
+     actor: 自動
++
++  - id: actions-pinning
++    title: ワークフローの部品の固定
++    category: 基盤運用
++    requirements: [SLSA:Build, SSDF:PO.3]
++    mechanisms:
++      - workflow: ci.yml
++        job: pinning
++    evidence: CIのpinningジョブの結果
++    timing: 定常(変更ごと)
++    actor: 自動
++
++  - id: artifact-signing
++    title: 成果物の署名とprovenance
++    category: 基盤運用
++    requirements: [SLSA:Build-L2, SSDF:PS.2]
++    mechanisms:
++      - workflow: release.yml
++        job: release
++    evidence: 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON)
++    timing: 定常(リリースごと)
++    actor: 自動
++    runbook: runbooks/verify-image.md
+diff --git a/app/ops/runbooks/verify-image.md b/app/ops/runbooks/verify-image.md
+new file mode 100644
+index 0000000..40d2d2d
+--- /dev/null
++++ b/app/ops/runbooks/verify-image.md
+@@ -0,0 +1,31 @@
++# イメージの署名とprovenanceを確かめる
++
++GHCRにあるAPIのイメージが，このリポジトリの release.yml で作られたものかを確かめる手順．
++デプロイの前や，監査でイメージの出どころを示すときに使う．
++
++## 手順
++
++1. 確かめるイメージのダイジェストを調べる．タグは付け替えられるので，ダイジェストで指定する．
++
++   ```console
++   docker buildx imagetools inspect ghcr.io/<owner>/<repo>/api:<タグ>
++   ```
++
++2. 署名とprovenanceを検証する．`gh auth login`でログインしておく．
++
++   ```console
++   mise run release:verify ghcr.io/<owner>/<repo>/api@sha256:<ダイジェスト>
++   ```
++
++3. `out/evidence/release/`の`cosign-verify.json`と`provenance-verify.json`を確かめる．
++   provenanceには，ビルドしたワークフロー，コミット，実行の記録へのリンクが入っている．
++
++## 失敗したとき
++
++署名かprovenanceの検証に失敗したイメージは，デプロイしない．
++イメージがすり替えられた可能性があるので，セキュリティ責任者に知らせる．
++
++## 証跡
++
++- 検証の結果(`cosign-verify.json`，`provenance-verify.json`)．
++- release.yml の実行の記録．
+diff --git a/app/tests/gates/fixtures/pinning/pinned/ci.yml b/app/tests/gates/fixtures/pinning/pinned/ci.yml
+new file mode 100644
+index 0000000..e991f85
+--- /dev/null
++++ b/app/tests/gates/fixtures/pinning/pinned/ci.yml
+@@ -0,0 +1,9 @@
++on: push
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - run: "true"
++  local:
++    uses: ./.github/workflows/lint.yml
+diff --git a/app/tests/gates/fixtures/pinning/tag/ci.yml b/app/tests/gates/fixtures/pinning/tag/ci.yml
+new file mode 100644
+index 0000000..c4a8015
+--- /dev/null
++++ b/app/tests/gates/fixtures/pinning/tag/ci.yml
+@@ -0,0 +1,9 @@
++on: push
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v5
++      - run: "true"
++  shared:
++    uses: example/workflows/.github/workflows/lint.yml@main
+diff --git a/app/tests/gates/pinning.test.ts b/app/tests/gates/pinning.test.ts
+new file mode 100644
+index 0000000..6b423cd
+--- /dev/null
++++ b/app/tests/gates/pinning.test.ts
+@@ -0,0 +1,32 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/pinning/<name> のワークフローを検査する． */
++function pinning(name: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/pinning.ts",
++    "--workflows",
++    fixture("pinning", name),
++  ]);
++}
++
++describe("gate:pinning", () => {
++  it("タグやブランチで参照するactionやワークフローがあれば失敗する", () => {
++    const result = pinning("tag");
++    expect(result.output).toContain(
++      "ci.yml: actions/checkout@v5 がハッシュで固定されていない",
++    );
++    expect(result.output).toContain(
++      "lint.yml@main がハッシュで固定されていない",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("ハッシュで固定した参照と，同じリポジトリの中の参照だけなら通る", () => {
++    const result = pinning("pinned");
++    expect(result.output).toContain("all pinned");
++    expect(result.status).toBe(0);
++  });
++});
+diff --git a/app/tools/gates/pinning.ts b/app/tools/gates/pinning.ts
+new file mode 100644
+index 0000000..2d9a26d
+--- /dev/null
++++ b/app/tools/gates/pinning.ts
+@@ -0,0 +1,43 @@
++// ワークフローが使うactionやreusable workflowが，コミットのハッシュで固定されているかを検査する．
++// タグやブランチは後から別のコミットを指すように変えられるので，ハッシュで固定する．
++import { readdirSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { readYaml } from "../ops/items.ts";
++
++type Workflow = {
++  jobs?: Record<string, { uses?: string; steps?: { uses?: string }[] }>;
++};
++
++/** ハッシュで固定されていない参照を返す．同じリポジトリの中の参照(./)は対象にしない． */
++export function unpinned(workflow: Workflow): string[] {
++  const refs = Object.values(workflow.jobs ?? {}).flatMap((job) => [
++    ...(job.uses ? [job.uses] : []),
++    ...(job.steps ?? []).flatMap((step) => (step.uses ? [step.uses] : [])),
++  ]);
++  return refs.filter(
++    (ref) =>
++      !ref.startsWith("./") &&
++      !/@[0-9a-f]{40}$/.test(ref) &&
++      !/^docker:\/\/.+@sha256:[0-9a-f]{64}$/.test(ref),
++  );
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: { workflows: { type: "string", default: "../.github/workflows" } },
++  });
++  const files = readdirSync(values.workflows).filter((f) => /\.ya?ml$/.test(f));
++  const problems = files.flatMap((file) =>
++    unpinned(readYaml(join(values.workflows, file)) as Workflow).map(
++      (ref) => `${file}: ${ref} がハッシュで固定されていない`,
++    ),
++  );
++  for (const problem of problems) {
++    console.error(problem);
++  }
++  if (problems.length > 0) {
++    process.exit(1);
++  }
++  console.log(`pinning: ${files.length} workflows, all pinned`);
++}
+diff --git a/app/tools/gates/verify-image.sh b/app/tools/gates/verify-image.sh
+new file mode 100755
+index 0000000..d9317da
+--- /dev/null
++++ b/app/tools/gates/verify-image.sh
+@@ -0,0 +1,22 @@
++#!/usr/bin/env bash
++# イメージの署名とprovenanceを検証し，結果を証跡に残す．
++# 使い方：tools/gates/verify-image.sh <イメージ>@<ダイジェスト>
++# 署名とprovenanceが，このリポジトリの release.yml で作られたものでなければ失敗する．
++set -euo pipefail
++
++ref="$1"
++repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
++dir="${EVIDENCE_DIR:-out/evidence}/release"
++mkdir -p "$dir"
++
++cosign verify \
++  --certificate-identity-regexp "^https://github.com/${repo}/\.github/workflows/release\.yml@" \
++  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
++  "$ref" > "$dir/cosign-verify.json"
++
++gh attestation verify "oci://${ref}" \
++  --repo "$repo" \
++  --signer-workflow "${repo}/.github/workflows/release.yml" \
++  --format json > "$dir/provenance-verify.json"
++
++echo "verified: ${ref}"

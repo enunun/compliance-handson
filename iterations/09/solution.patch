@@ -1,0 +1,797 @@
+diff --git a/.github/workflows/backup.yml b/.github/workflows/backup.yml
+new file mode 100644
+index 0000000..7169009
+--- /dev/null
++++ b/.github/workflows/backup.yml
+@@ -0,0 +1,45 @@
++name: backup
++
++# データベースのバックアップとリストアの訓練．standards.yaml の backup.interval_hours(24時間)ごとに動かす．
++# この題材では，データベースはジョブの中で起動したMiniStackの上に作る．
++on:
++  schedule:
++    - cron: "17 18 * * *"
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++jobs:
++  backup:
++    runs-on: ubuntu-latest
++    services:
++      ministack:
++        image: ministackorg/ministack:1.5.21@sha256:7a30ff0670578e10528b5a9a21e795ef494f96bbc35691c9b0742ea35de71808
++        ports:
++          - 4566:4566
++        volumes:
++          - /var/run/docker.sock:/var/run/docker.sock
++        options: --workdir /opt/ministack
++    env:
++      AWS_ENDPOINT_URL: http://localhost:4566
++      AWS_ACCESS_KEY_ID: test
++      AWS_SECRET_ACCESS_KEY: test
++      AWS_REGION: ap-northeast-1
++      AWS_CONFIG_FILE: ${{ github.workspace }}/.devcontainer/aws-config
++      LOG_GROUP_PREFIX: /app/
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - run: echo "127.0.0.1 000000000000.localhost" | sudo tee -a /etc/hosts
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run up
++      - run: mise run ops:backup
++      - run: mise run ops:restore-test
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-backup
++          path: app/out/evidence/
+diff --git a/app/infra/backup.tf b/app/infra/backup.tf
+new file mode 100644
+index 0000000..d032590
+--- /dev/null
++++ b/app/infra/backup.tf
+@@ -0,0 +1,56 @@
++# データベースのバックアップの保管場所．Object Lock(COMPLIANCE)で，保管期間の間は誰も消せない．
++resource "aws_s3_bucket" "backups" {
++  bucket              = "app-backups"
++  object_lock_enabled = true
++}
++
++resource "aws_s3_bucket_versioning" "backups" {
++  bucket = aws_s3_bucket.backups.id
++  versioning_configuration {
++    status = "Enabled"
++  }
++}
++
++resource "aws_s3_bucket_object_lock_configuration" "backups" {
++  bucket = aws_s3_bucket.backups.id
++  rule {
++    default_retention {
++      mode = "COMPLIANCE"
++      days = local.standards.backup.retention_days
++    }
++  }
++  depends_on = [aws_s3_bucket_versioning.backups]
++}
++
++resource "aws_s3_bucket_public_access_block" "backups" {
++  bucket                  = aws_s3_bucket.backups.id
++  block_public_acls       = true
++  block_public_policy     = true
++  ignore_public_acls      = true
++  restrict_public_buckets = true
++}
++
++resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
++  bucket = aws_s3_bucket.backups.id
++  rule {
++    apply_server_side_encryption_by_default {
++      sse_algorithm     = "aws:kms"
++      kms_master_key_id = aws_kms_key.storage.arn
++    }
++  }
++}
++
++resource "aws_s3_bucket_lifecycle_configuration" "backups" {
++  bucket = aws_s3_bucket.backups.id
++  rule {
++    id     = "expire-after-retention"
++    status = "Enabled"
++    filter {}
++    noncurrent_version_expiration {
++      noncurrent_days = local.standards.backup.retention_days + 1
++    }
++    expiration {
++      days = local.standards.backup.retention_days + 1
++    }
++  }
++}
+diff --git a/app/infra/outputs.tf b/app/infra/outputs.tf
+index b712c7a..7e7ddf7 100644
+--- a/app/infra/outputs.tf
++++ b/app/infra/outputs.tf
+@@ -5,3 +5,7 @@ output "database_url" {
+ output "evidence_bucket" {
+   value = aws_s3_bucket.evidence.bucket
+ }
++
++output "backup_bucket" {
++  value = aws_s3_bucket.backups.bucket
++}
+diff --git a/app/mise.toml b/app/mise.toml
+index f5130db..88d83fc 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -148,8 +148,19 @@ depends = ["check:code", "gates"]
+ [tasks."test:ops"]
+ description = "運用テストを実行する(先にmise run upを実行する)"
+ depends = ["install"]
++env = { LOG_GROUP_PREFIX = "/app/" }
+ run = "pnpm test:ops"
+ 
++[tasks."ops:backup"]
++description = "データベースをバックアップし，バックアップの保管場所に置く"
++depends = ["install"]
++run = "pnpm exec tsx tools/ops/backup.ts"
++
++[tasks."ops:restore-test"]
++description = "最新のバックアップを新しいデータベースに戻し，行数を比べる(リストアの訓練)"
++depends = ["install"]
++run = "pnpm exec tsx tools/ops/restore-test.ts"
++
+ [tasks."evidence:upload"]
+ description = "out/evidence/ の証跡を，日付とコミットごとに証跡の保管場所へ送る"
+ run = """
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 1c55ea2..0239ab0 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -19,3 +19,5 @@
+ | service-monitoring | APIの監視 | 基盤運用 | ISO27001:A.8.16<br>SOC2:CC7.2 | alert: ApiHighErrorRate | アラートのルールとそのテストの結果，Alertmanagerの通知の記録 | 定常(常時) | 自動 | [手順書](runbooks/api-high-error-rate.md) |
+ | log-design | ログの設計 | 運用管理 | ISO27001:A.8.15 | ci.yml: check | 運用項目とログの対応表(records.md)と，ops:verify の結果 | 定常(変更ごと) | 自動 |  |
+ | audit-logging | 監査ログ | 運用管理 | ISO27001:A.8.15<br>SOC2:CC7.2 | ci.yml: evidence | 監査ログのロググループの設定(保管期間)と，運用テストの結果 | 定常(常時) | 自動 |  |
++| backup | データベースのバックアップ | 基盤運用 | ISO27001:A.8.13<br>SOC2:A1.2 | backup.yml: backup | バックアップのファイル(バックアップの保管場所)と，運用の作業の記録 | 定常(standards.yaml の backup.interval_hours ごと) | 自動 | [手順書](runbooks/restore.md) |
++| restore-test | リストアの訓練 | 基盤運用 | ISO27001:A.8.13<br>SOC2:A1.3 | backup.yml: backup | リストアの訓練の結果(元と戻した先の行数の比較)と，運用の作業の記録 | 定常(バックアップのたび) | 自動 | [手順書](runbooks/restore.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 408dae4..1feeb10 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -192,3 +192,41 @@ items:
+         keep_days: 90
+         log: audit
+         fields: [time, actor_email, action, result, source_ip]
++
++  - id: backup
++    title: データベースのバックアップ
++    category: 基盤運用
++    requirements: [ISO27001:A.8.13, SOC2:A1.2]
++    mechanisms:
++      - workflow: backup.yml
++        job: backup
++    evidence: バックアップのファイル(バックアップの保管場所)と，運用の作業の記録
++    timing: 定常(standards.yaml の backup.interval_hours ごと)
++    actor: 自動
++    runbook: runbooks/restore.md
++    records:
++      - question: バックアップが決めた間隔で取れていたことを示す
++        asker: 監査人
++        within: 依頼から1週間以内
++        keep_days: 400
++        log: ops
++        fields: [time, job, result, detail]
++
++  - id: restore-test
++    title: リストアの訓練
++    category: 基盤運用
++    requirements: [ISO27001:A.8.13, SOC2:A1.3]
++    mechanisms:
++      - workflow: backup.yml
++        job: backup
++    evidence: リストアの訓練の結果(元と戻した先の行数の比較)と，運用の作業の記録
++    timing: 定常(バックアップのたび)
++    actor: 自動
++    runbook: runbooks/restore.md
++    records:
++      - question: バックアップから戻せることを確かめていたことを示す
++        asker: 監査人
++        within: 依頼から1週間以内
++        keep_days: 400
++        log: ops
++        fields: [time, job, result, detail]
+diff --git a/app/ops/logs.yaml b/app/ops/logs.yaml
+index f4a521f..75a0117 100644
+--- a/app/ops/logs.yaml
++++ b/app/ops/logs.yaml
+@@ -40,3 +40,17 @@ types:
+       result: { type: string, description: succeeded か failed }
+       source_ip: { type: string, description: 操作した端末のIPアドレス }
+     required: [time, level, msg, log_type, request_id, action, result]
++
++  ops:
++    description: 定期ジョブなど，運用の作業の記録．作業が決めたとおりに行われたことを示すのに使う．
++    destination: CloudWatch Logs の /app/ops
++    readers: [開発チーム, セキュリティ責任者]
++    fields:
++      time: { type: string, description: 記録した時刻(RFC 3339) }
++      level: { type: string, description: INFO，WARN，ERROR のどれか }
++      msg: { type: string, description: 何が起きたか }
++      log_type: { type: string, description: ログの種類(ops) }
++      job: { type: string, description: 作業の名前(backup，restore-test など) }
++      result: { type: string, description: succeeded か failed }
++      detail: { type: string, description: 作業の結果の詳細(置き場所，件数など) }
++    required: [time, level, msg, log_type, job, result]
+diff --git a/app/ops/records.md b/app/ops/records.md
+index 4530b24..8ddaaf4 100644
+--- a/app/ops/records.md
++++ b/app/ops/records.md
+@@ -9,6 +9,8 @@
+ | service-monitoring | アラートの原因になったリクエストを特定する | オンコールの担当者 | 発生から1時間以内 | 30日 | api | time, request_id, route, status, duration_ms, error |
+ | audit-logging | 権限を変えた人と時刻を示す | 監査人 | 依頼から1週間以内 | 400日 | audit | time, actor_id, action, target_id, result |
+ | audit-logging | ログインの失敗が続くアカウントを見つける | セキュリティ責任者 | 発生から1日以内 | 90日 | audit | time, actor_email, action, result, source_ip |
++| backup | バックアップが決めた間隔で取れていたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
++| restore-test | バックアップから戻せることを確かめていたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
+ 
+ ## ログの種類
+ 
+@@ -16,3 +18,4 @@
+ | --- | --- | --- | --- | --- |
+ | api | APIのリクエストの処理の記録．障害の調査に使う． | CloudWatch Logs の /app/api | 開発チーム，オンコールの担当者 | 30日 |
+ | audit | 誰がいつ何をしたかの記録．監査と不正の調査に使う． | CloudWatch Logs の /app/audit | セキュリティ責任者 | 400日 |
++| ops | 定期ジョブなど，運用の作業の記録．作業が決めたとおりに行われたことを示すのに使う． | CloudWatch Logs の /app/ops | 開発チーム，セキュリティ責任者 | 400日 |
+diff --git a/app/ops/runbooks/restore.md b/app/ops/runbooks/restore.md
+new file mode 100644
+index 0000000..1cfe287
+--- /dev/null
++++ b/app/ops/runbooks/restore.md
+@@ -0,0 +1,32 @@
++# データベースを戻す(リストア)
++
++障害やデータの誤った削除で，データベースをバックアップから戻すときの手順．
++バックアップは standards.yaml の `backup.interval_hours` ごとに取るので，最後のバックアップより後の変更は失われる．
++
++## 実施する人
++
++リポジトリ管理者．戻す前に，セキュリティ責任者と開発チームに知らせる．
++
++## 手順
++
++1. 戻す時点を決める．バックアップの一覧から，その時点より前で最も新しいものを選ぶ．
++
++   ```console
++   aws s3 ls --recursive s3://app-backups/
++   ```
++
++2. 新しいデータベースを作り，バックアップを戻す．手順は `tools/ops/restore-test.ts` と同じである．
++   今のデータベースは，原因を調べるために消さずに残す．
++3. 戻したデータベースの行数を，バックアップと一緒に置いた `.rows.json` と比べる．
++4. APIの接続先(`DATABASE_URL`)を，戻したデータベースに替える．
++5. 失われた時間の範囲と，影響を受けた利用者を記録し，必要なら利用者に知らせる．
++
++## 訓練
++
++リストアの訓練は，バックアップのたびに backup.yml が自動で行う．
++訓練の結果は，運用の作業の記録(ops のログ)と証跡(`restore-test/result.json`)に残る．
++訓練が失敗したら，バックアップが使えない可能性があるので，すぐに原因を調べる．
++
++## 記録
++
++戻した時刻，選んだバックアップ，失われた時間の範囲，対応した人をIssueに書く．
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+index 1106768..86d5284 100644
+--- a/app/ops/schema/standards.schema.json
++++ b/app/ops/schema/standards.schema.json
+@@ -125,6 +125,27 @@
+           }
+         }
+       }
++    },
++    "backup": {
++      "description": "バックアップの基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "interval_hours",
++        "retention_days"
++      ],
++      "properties": {
++        "interval_hours": {
++          "description": "バックアップの間隔(失ってもよいデータの時間，RPO)",
++          "type": "integer",
++          "minimum": 1
++        },
++        "retention_days": {
++          "description": "バックアップを消せない状態で保管する日数",
++          "type": "integer",
++          "minimum": 1
++        }
++      }
+     }
+   },
+   "required": [
+@@ -134,6 +155,7 @@
+     "license",
+     "evidence",
+     "monitoring",
+-    "logs"
++    "logs",
++    "backup"
+   ]
+ }
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+index 7d0df62..ec304b9 100644
+--- a/app/ops/standards.yaml
++++ b/app/ops/standards.yaml
+@@ -36,3 +36,10 @@ logs:
+   retention_days:
+     api: 30
+     audit: 400
++    ops: 400
++
++backup:
++  # データベースのバックアップの間隔(失ってもよいデータの時間，RPO)．
++  interval_hours: 24
++  # バックアップを消せない状態で保管する日数．
++  retention_days: 35
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+index 0e043e5..5681672 100644
+--- a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -14,3 +14,6 @@ monitoring:
+ logs:
+   retention_days:
+     api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+index e8ddd6e..d0c6460 100644
+--- a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -14,3 +14,6 @@ monitoring:
+ logs:
+   retention_days:
+     api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+index e8ddd6e..d0c6460 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+@@ -14,3 +14,6 @@ monitoring:
+ logs:
+   retention_days:
+     api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+index e8ddd6e..d0c6460 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+@@ -14,3 +14,6 @@ monitoring:
+ logs:
+   retention_days:
+     api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+index e8ddd6e..d0c6460 100644
+--- a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -14,3 +14,6 @@ monitoring:
+ logs:
+   retention_days:
+     api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+index e8ddd6e..d0c6460 100644
+--- a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -14,3 +14,6 @@ monitoring:
+ logs:
+   retention_days:
+     api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
+diff --git a/app/tests/ops/backup.test.ts b/app/tests/ops/backup.test.ts
+new file mode 100644
+index 0000000..844ec53
+--- /dev/null
++++ b/app/tests/ops/backup.test.ts
+@@ -0,0 +1,91 @@
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { Ajv2020 } from "ajv/dist/2020.js";
++import { beforeAll, describe, expect, it } from "vitest";
++import { parse } from "yaml";
++import { logLineSchema, readLogs } from "../../tools/ops/logs.ts";
++import { appRoot, evidenceDir, run } from "../gates/helpers.ts";
++
++// 本番の環境(mise run up で作った環境)で，バックアップとリストアの訓練を動かして確かめる．
++const rows = 7;
++let backup: ReturnType<typeof run>;
++let restore: ReturnType<typeof run>;
++
++function tofuOutput(name: string): string {
++  return run("tofu", ["-chdir=infra", "output", "-raw", name]).output;
++}
++
++beforeAll(() => {
++  // 戻した後で数を比べるための行を用意する．
++  const databaseUrl = tofuOutput("database_url");
++  run("psql", [
++    databaseUrl,
++    "-c",
++    `DROP TABLE IF EXISTS restore_check; CREATE TABLE restore_check AS SELECT generate_series(1, ${rows}) AS n`,
++  ]);
++  backup = run("pnpm", ["exec", "tsx", "tools/ops/backup.ts"]);
++  restore = run("pnpm", ["exec", "tsx", "tools/ops/restore-test.ts"]);
++}, 300_000);
++
++describe("バックアップとリストアの訓練", () => {
++  it("バックアップを取り，バックアップの保管場所に置く", () => {
++    expect(backup.status, backup.output).toBe(0);
++    const result = JSON.parse(
++      readFileSync(join(evidenceDir, "backup/result.json"), "utf8"),
++    );
++    expect(result.rows.restore_check).toBe(rows);
++  });
++
++  it("最新のバックアップを新しいデータベースに戻し，行数が一致する", () => {
++    expect(restore.status, restore.output).toBe(0);
++    const result = JSON.parse(
++      readFileSync(join(evidenceDir, "restore-test/result.json"), "utf8"),
++    );
++    expect(result.ok).toBe(true);
++    expect(result.tables.restore_check).toEqual({
++      backup: rows,
++      restored: rows,
++    });
++  });
++
++  it("バックアップの保管場所は，基準値の日数だけ消せない設定である", () => {
++    const standards = parse(
++      readFileSync(join(appRoot, "ops/standards.yaml"), "utf8"),
++    );
++    const result = run("aws", [
++      "s3api",
++      "get-object-lock-configuration",
++      "--bucket",
++      tofuOutput("backup_bucket"),
++    ]);
++    expect(
++      JSON.parse(result.output).ObjectLockConfiguration.Rule.DefaultRetention,
++    ).toEqual({
++      Mode: "COMPLIANCE",
++      Days: standards.backup.retention_days,
++    });
++  });
++
++  it("作業の記録が ops のロググループに残り，ログの設計に合う", () => {
++    const result = run("aws", [
++      "logs",
++      "filter-log-events",
++      "--log-group-name",
++      "/app/ops",
++    ]);
++    const lines = (
++      JSON.parse(result.output).events as { message: string }[]
++    ).map((e) => JSON.parse(e.message));
++    const validate = new Ajv2020().compile(
++      logLineSchema(readLogs(join(appRoot, "ops")), "ops"),
++    );
++    for (const line of lines) {
++      expect(validate(line), JSON.stringify(validate.errors)).toBe(true);
++    }
++    const jobs = lines
++      .filter((l) => l.result === "succeeded")
++      .map((l) => l.job);
++    expect(jobs).toContain("backup");
++    expect(jobs).toContain("restore-test");
++  });
++});
+diff --git a/app/tests/ops/logs.test.ts b/app/tests/ops/logs.test.ts
+index b0908ad..0156fcd 100644
+--- a/app/tests/ops/logs.test.ts
++++ b/app/tests/ops/logs.test.ts
+@@ -85,8 +85,11 @@ afterAll(() => {
+   api?.kill();
+ });
+ 
++// APIが書くログの種類．ほかの種類(ops など)は，それを書く作業の運用テストで確かめる．
++const apiLogTypes = ["api", "audit"];
++
+ describe("ログ", () => {
+-  for (const name of Object.keys(logs.types)) {
++  for (const name of apiLogTypes) {
+     it(`${name} のロググループの各行が，ログの設計に合う`, () => {
+       // ログの設計から作ったJSON Schemaで検証する．
+       const validate = new Ajv2020().compile(logLineSchema(logs, name));
+@@ -105,7 +108,7 @@ describe("ログ", () => {
+   });
+ 
+   it("どのロググループにも，パスワードとトークンを記録しない", () => {
+-    for (const name of Object.keys(logs.types)) {
++    for (const name of apiLogTypes) {
+       const text = JSON.stringify(readGroup(`/app/${name}`));
+       expect(text).not.toContain("wrong-password");
+       expect(text).not.toContain(password);
+diff --git a/app/tools/ops/backup.ts b/app/tools/ops/backup.ts
+new file mode 100644
+index 0000000..145238a
+--- /dev/null
++++ b/app/tools/ops/backup.ts
+@@ -0,0 +1,34 @@
++// データベースをバックアップし，バックアップの保管場所に置く．
++// バックアップした時点の各テーブルの行数も一緒に置き，リストアの訓練で比べる．
++import { createHash } from "node:crypto";
++import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { countRows, evidenceDir, opsLog, sh, tofuOutput } from "./run.ts";
++
++try {
++  const databaseUrl = process.env.DATABASE_URL ?? tofuOutput("database_url");
++  const bucket = tofuOutput("backup_bucket");
++  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
++  const key = `${stamp.slice(0, 10)}/app-${stamp}.dump`;
++
++  mkdirSync("out/backup", { recursive: true });
++  const file = join("out/backup", `app-${stamp}.dump`);
++  const rows = countRows(databaseUrl);
++  sh("pg_dump", ["--format=custom", "--file", file, databaseUrl]);
++  const sha256 = createHash("sha256").update(readFileSync(file)).digest("hex");
++
++  const countsFile = `${file}.rows.json`;
++  writeFileSync(countsFile, JSON.stringify(rows));
++  sh("aws", ["s3", "cp", file, `s3://${bucket}/${key}`]);
++  sh("aws", ["s3", "cp", countsFile, `s3://${bucket}/${key}.rows.json`]);
++
++  const result = { time: new Date().toISOString(), bucket, key, sha256, rows };
++  writeFileSync(
++    join(evidenceDir("backup"), "result.json"),
++    JSON.stringify(result, null, 2),
++  );
++  opsLog("backup", true, `s3://${bucket}/${key} sha256=${sha256}`);
++} catch (error) {
++  opsLog("backup", false, String(error));
++  process.exit(1);
++}
+diff --git a/app/tools/ops/restore-test.ts b/app/tools/ops/restore-test.ts
+new file mode 100644
+index 0000000..158e0b5
+--- /dev/null
++++ b/app/tools/ops/restore-test.ts
+@@ -0,0 +1,122 @@
++// リストアの訓練．最新のバックアップを新しいデータベースに戻し，
++// バックアップした時点の各テーブルの行数と一致するかを確かめる．訓練に使ったデータベースは消す．
++import { randomBytes } from "node:crypto";
++import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { countRows, evidenceDir, opsLog, sh, tofuOutput } from "./run.ts";
++
++const instance = `restore-test-${Date.now()}`;
++let created = false;
++try {
++  const bucket = tofuOutput("backup_bucket");
++  const objects = JSON.parse(
++    sh("aws", ["s3api", "list-objects-v2", "--bucket", bucket]),
++  ).Contents as { Key: string; LastModified: string }[];
++  const latest = objects
++    .filter((o) => o.Key.endsWith(".dump"))
++    .sort((a, b) => a.LastModified.localeCompare(b.LastModified))
++    .at(-1);
++  if (!latest) {
++    throw new Error("バックアップがない");
++  }
++  mkdirSync("out/backup", { recursive: true });
++  const file = "out/backup/restore.dump";
++  sh("aws", ["s3", "cp", `s3://${bucket}/${latest.Key}`, file]);
++  sh("aws", [
++    "s3",
++    "cp",
++    `s3://${bucket}/${latest.Key}.rows.json`,
++    `${file}.rows.json`,
++  ]);
++  const expected = JSON.parse(
++    readFileSync(`${file}.rows.json`, "utf8"),
++  ) as Record<string, number>;
++
++  // 訓練用のデータベースを作る．
++  const password = randomBytes(16).toString("hex");
++  sh("aws", [
++    "rds",
++    "create-db-instance",
++    "--db-instance-identifier",
++    instance,
++    "--engine",
++    "postgres",
++    "--engine-version",
++    "15",
++    "--db-instance-class",
++    "db.t3.micro",
++    "--allocated-storage",
++    "20",
++    "--db-name",
++    "app",
++    "--master-username",
++    "app",
++    "--master-user-password",
++    password,
++  ]);
++  created = true;
++  sh("aws", [
++    "rds",
++    "wait",
++    "db-instance-available",
++    "--db-instance-identifier",
++    instance,
++  ]);
++  const endpoint = JSON.parse(
++    sh("aws", [
++      "rds",
++      "describe-db-instances",
++      "--db-instance-identifier",
++      instance,
++    ]),
++  ).DBInstances[0].Endpoint as { Address: string; Port: number };
++  const url = `postgres://app:${password}@${endpoint.Address}:${endpoint.Port}/app`;
++
++  // データベースが接続を受け付けるまで待ってから戻す．
++  for (let i = 0; ; i++) {
++    try {
++      sh("psql", [url, "-tAc", "SELECT 1"]);
++      break;
++    } catch (error) {
++      if (i >= 30) throw error;
++      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
++    }
++  }
++  sh("pg_restore", ["--no-owner", "--dbname", url, file]);
++  const restored = countRows(url);
++
++  const tables = Object.fromEntries(
++    Object.keys(expected).map((t) => [
++      t,
++      { backup: expected[t], restored: restored[t] ?? 0 },
++    ]),
++  );
++  const ok = Object.values(tables).every((t) => t.backup === t.restored);
++  const result = {
++    time: new Date().toISOString(),
++    backup: latest.Key,
++    ok,
++    tables,
++  };
++  writeFileSync(
++    join(evidenceDir("restore-test"), "result.json"),
++    JSON.stringify(result, null, 2),
++  );
++  opsLog("restore-test", ok, `${latest.Key} ${JSON.stringify(tables)}`);
++  if (!ok) {
++    process.exitCode = 1;
++  }
++} catch (error) {
++  opsLog("restore-test", false, String(error));
++  process.exitCode = 1;
++} finally {
++  if (created) {
++    sh("aws", [
++      "rds",
++      "delete-db-instance",
++      "--db-instance-identifier",
++      instance,
++      "--skip-final-snapshot",
++    ]);
++  }
++}
+diff --git a/app/tools/ops/run.ts b/app/tools/ops/run.ts
+new file mode 100644
+index 0000000..466114d
+--- /dev/null
++++ b/app/tools/ops/run.ts
+@@ -0,0 +1,83 @@
++// 運用の作業のスクリプトに共通の処理．
++import { spawnSync } from "node:child_process";
++import { mkdirSync } from "node:fs";
++import { join } from "node:path";
++
++/** コマンドを実行し，標準出力を返す．失敗したら例外を投げる． */
++export function sh(command: string, args: string[], input?: string): string {
++  const result = spawnSync(command, args, { encoding: "utf8", input });
++  if (result.status !== 0) {
++    throw new Error(`${command} ${args[0]} failed: ${result.stderr.trim()}`);
++  }
++  return result.stdout.trim();
++}
++
++/** OpenTofuの出力を読む． */
++export function tofuOutput(name: string): string {
++  return sh("tofu", ["-chdir=infra", "output", "-raw", name]);
++}
++
++/** 証跡の置き場所．ゲートのテストや運用テストでは EVIDENCE_DIR で替える． */
++export function evidenceDir(name: string): string {
++  const dir = join(process.env.EVIDENCE_DIR ?? "out/evidence", name);
++  mkdirSync(dir, { recursive: true });
++  return dir;
++}
++
++/**
++ * 運用の作業の記録(ops/logs.yaml の ops)を1行書く．
++ * LOG_GROUP_PREFIX があれば，CloudWatch Logsのロググループ(<prefix>ops)にも送る．
++ */
++export function opsLog(job: string, succeeded: boolean, detail: string): void {
++  const line = JSON.stringify({
++    time: new Date().toISOString(),
++    level: succeeded ? "INFO" : "ERROR",
++    msg: `${job} ${succeeded ? "succeeded" : "failed"}`,
++    log_type: "ops",
++    job,
++    result: succeeded ? "succeeded" : "failed",
++    detail,
++  });
++  console.log(line);
++  const prefix = process.env.LOG_GROUP_PREFIX;
++  if (!prefix) {
++    return;
++  }
++  const group = `${prefix}ops`;
++  // ストリームがすでにあれば失敗するが，そのまま書き込む．
++  spawnSync("aws", [
++    "logs",
++    "create-log-stream",
++    "--log-group-name",
++    group,
++    "--log-stream-name",
++    job,
++  ]);
++  sh("aws", [
++    "logs",
++    "put-log-events",
++    "--log-group-name",
++    group,
++    "--log-stream-name",
++    job,
++    "--log-events",
++    JSON.stringify([{ timestamp: Date.now(), message: line }]),
++  ]);
++}
++
++/** データベースの各テーブルの行数を数える． */
++export function countRows(databaseUrl: string): Record<string, number> {
++  const tables = sh("psql", [
++    databaseUrl,
++    "-tAc",
++    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename",
++  ])
++    .split("\n")
++    .filter(Boolean);
++  return Object.fromEntries(
++    tables.map((t) => [
++      t,
++      Number(sh("psql", [databaseUrl, "-tAc", `SELECT count(*) FROM "${t}"`])),
++    ]),
++  );
++}
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+index d6a18b2..774d259 100644
+--- a/app/tools/ops/standards.ts
++++ b/app/tools/ops/standards.ts
+@@ -13,6 +13,7 @@ export type Standards = {
+   evidence: { retention_days: number };
+   monitoring: { error_rate_threshold: number; error_rate_for: string };
+   logs: { retention_days: Record<string, number> };
++  backup: { interval_hours: number; retention_days: number };
+ };
+ 
+ /** 例外．ops/schema/exceptions.schema.json の形に合う． */

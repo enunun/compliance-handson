@@ -1,0 +1,1454 @@
+diff --git a/.github/workflows/gates.yml b/.github/workflows/gates.yml
+index 47153f7..f1fbea8 100644
+--- a/.github/workflows/gates.yml
++++ b/.github/workflows/gates.yml
+@@ -58,6 +58,11 @@ jobs:
+       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:exceptions
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-exceptions
++          path: ${{ inputs.working-directory }}/out/evidence/
+ 
+   sla:
+     runs-on: ubuntu-latest
+@@ -143,6 +148,11 @@ jobs:
+       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:pinning
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-pinning
++          path: ${{ inputs.working-directory }}/out/evidence/
+ 
+   eol:
+     runs-on: ubuntu-latest
+@@ -153,6 +163,11 @@ jobs:
+       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:eol
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-eol
++          path: ${{ inputs.working-directory }}/out/evidence/
+ 
+   iam:
+     runs-on: ubuntu-latest
+@@ -163,6 +178,11 @@ jobs:
+       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:iam
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-iam
++          path: ${{ inputs.working-directory }}/out/evidence/
+ 
+   policy:
+     runs-on: ubuntu-latest
+diff --git a/.github/workflows/scorecard.yml b/.github/workflows/scorecard.yml
+new file mode 100644
+index 0000000..73323f9
+--- /dev/null
++++ b/.github/workflows/scorecard.yml
+@@ -0,0 +1,33 @@
++name: scorecard
++
++# OpenSSF Scorecardで，リポジトリのサプライチェーンの健全性(ブランチ保護，ハッシュ固定，署名など)を毎週評価する．
++# 結果のJSONは，月次報告(mise run ops:report)が読む．
++on:
++  push:
++    branches: [main]
++  schedule:
++    - cron: "17 3 * * 1"
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++jobs:
++  analysis:
++    runs-on: ubuntu-latest
++    permissions:
++      contents: read
++      actions: read # ワークフローの設定を評価する
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++        with:
++          persist-credentials: false
++      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
++        with:
++          results_file: scorecard/results.json
++          results_format: json
++          publish_results: false
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        with:
++          name: evidence-scorecard
++          path: scorecard/
+diff --git a/app/checksheets/sample.yaml b/app/checksheets/sample.yaml
+new file mode 100644
+index 0000000..5171433
+--- /dev/null
++++ b/app/checksheets/sample.yaml
+@@ -0,0 +1,32 @@
++# セキュリティチェックシートの例．顧客から受け取るチェックシートの質問を，この形に書き写す．
++# requirements には，その質問が問う規格の要求を書く．運用項目の requirements と同じ書き方にする．
++title: サンプルのセキュリティチェックシート
++
++questions:
++  - id: Q1
++    text: ソースコードの変更は，レビューと承認を経て本番に反映していますか
++    requirements: [SOC2:CC8.1, ISO27001:A.8.32]
++  - id: Q2
++    text: パスワードやAPIキーなどの秘密情報の漏洩を防ぐ仕組みがありますか
++    requirements: [ISO27001:A.5.17, ISO27001:A.8.4]
++  - id: Q3
++    text: 利用しているOSSの脆弱性を管理していますか
++    requirements: [ISO27001:A.8.8, SOC2:CC7.1]
++  - id: Q4
++    text: SBOM(ソフトウェア部品表)を提供できますか
++    requirements: [SSDF:PS.3]
++  - id: Q5
++    text: 本番環境の操作の記録(監査ログ)を取得し，保管していますか
++    requirements: [ISO27001:A.8.15]
++  - id: Q6
++    text: データのバックアップを取り，復旧の手順を定期的に試していますか
++    requirements: [ISO27001:A.8.13, SOC2:A1.3]
++  - id: Q7
++    text: 本番環境へのアクセス権限を定期的に見直していますか
++    requirements: [ISO27001:A.5.18]
++  - id: Q8
++    text: 障害や異常を検知し，担当者に通知する仕組みがありますか
++    requirements: [ISO27001:A.8.16, SOC2:CC7.2]
++  - id: Q9
++    text: データセンターへの物理的な入退室を管理していますか
++    requirements: [ISO27001:A.7.2]
+diff --git a/app/mise.toml b/app/mise.toml
+index 9c80bfd..d8f27b1 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -201,6 +201,16 @@ description = "APIのイメージをECSのサービスにデプロイする(引
+ depends = ["install"]
+ run = "pnpm exec tsx tools/ops/deploy.ts"
+ 
++[tasks."ops:report"]
++description = "月次報告を作る(引数は --month YYYY-MM)"
++depends = ["install"]
++run = "pnpm exec tsx tools/ops/report.ts"
++
++[tasks."ops:checksheet"]
++description = "チェックシートの回答の下書きを作る(引数はチェックシートのYAML)"
++depends = ["install"]
++run = "pnpm exec tsx tools/ops/checksheet.ts"
++
+ [tasks."evidence:upload"]
+ description = "out/evidence/ の証跡を，日付とコミットごとに証跡の保管場所へ送る"
+ run = """
+diff --git a/app/ops/items.md b/app/ops/items.md
+index b531856..a7ff793 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -28,6 +28,9 @@
+ | access-review | 権限の棚卸し | 業務運用 | ISO27001:A.5.18<br>SOC2:CC6.2 | access.yml: access-review | 棚卸しの報告(IAMの利用者とアクセスキー，CloudTrailの記録，GitHubの協力者) | 定常(standards.yaml の access.review_interval_days ごと) | 人 | [手順書](runbooks/access-review.md) |
+ | credential-rotation | 認証情報の交換 | 基盤運用 | ISO27001:A.5.17<br>SOC2:CC6.1 | access.yml: rotate-db-password | 交換の結果と，運用の作業の記録 | 定常(standards.yaml の credentials.max_age_days より短い間隔)と非定常(漏洩のとき) | 自動 | [手順書](runbooks/credential-rotation.md) |
+ | vulnerability-triage | 脆弱性のトリアージと期限の管理 | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | gates.yml: sla<br>rescan.yml: rescan | exceptions.yaml のトリアージの結果(見つかった日，状態，根拠)の変更履歴と，OpenVEXの文書 | 非定常(脆弱性が見つかったとき)と定常(変更ごと，毎日期限を検査) | 人 | [手順書](runbooks/vulnerability-triage.md) |
+-| escalation | 期限切れのエスカレーション | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | rescan.yml: rescan | Alertmanagerの通知の記録と，運用の作業の記録 | 定常(毎日) | 自動 | [手順書](runbooks/vulnerability-triage.md) |
++| escalation | 期限切れのエスカレーション | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | rescan.yml: rescan | Alertmanagerの通知の記録と，運用の作業の記録 | 非定常(期限を過ぎたとき．検査は毎日) | 自動 | [手順書](runbooks/vulnerability-triage.md) |
+ | shared-policy | 組織の共通ルールの適用 | 運用管理 | SSDF:PO.1<br>ISO27001:A.5.1 | gates.yml: policy | conftestの結果(JSON)と，policy/ の変更履歴 | 定常(変更ごと) | 自動 | [手順書](runbooks/shared-policy.md) |
+ | deploy-verification | デプロイ前の検証 | 基盤運用 | SSDF:PS.2<br>SLSA:Build-L2<br>ISO27001:A.8.32 | deploy.yml: deploy | デプロイの前の署名とprovenanceの検証結果，デプロイの結果 | 非定常(デプロイのとき) | 人 | [手順書](runbooks/verify-image.md) |
++| supply-chain-scorecard | サプライチェーンの健全性の評価 | 運用管理 | SSDF:PO.4<br>ISO27001:A.5.21 | scorecard.yml: analysis | OpenSSF Scorecardの結果(JSON)をartifactとして保存 | 定常(毎週) | 自動 |  |
++| monthly-report | 月次報告 | 運用管理 | SOC2:CC2.2<br>SOC2:CC4.1<br>ISO27001:A.5.35 | mise run ops:report | 月次報告(out/report-YYYY-MM.md)を証跡の保管場所に保管 | 定常(毎月) | 人 | [手順書](runbooks/monthly-report.md) |
++| checksheet-response | セキュリティチェックシートへの回答 | 業務運用 | SOC2:CC2.3<br>ISO27001:A.5.36 | mise run ops:checksheet | 回答の下書きと，提出した回答の記録 | 非定常(顧客や監査から依頼があったとき) | 人 | [手順書](runbooks/checksheet.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index fff4e58..7b92b65 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -211,6 +211,7 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++        match: { job: backup }
+ 
+   - id: restore-test
+     title: リストアの訓練
+@@ -230,6 +231,7 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++        match: { job: restore-test }
+ 
+   - id: dependency-updates
+     title: 依存関係の更新
+@@ -292,6 +294,7 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++        match: { job: access-review }
+       - question: 棚卸しの期間に，誰が誰の権限を変えたかを示す
+         asker: セキュリティ責任者
+         within: 棚卸しの日
+@@ -317,6 +320,7 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++        match: { job: rotate-db-password }
+ 
+   - id: vulnerability-triage
+     title: 脆弱性のトリアージと期限の管理
+@@ -340,7 +344,7 @@ items:
+       - workflow: rescan.yml
+         job: rescan
+     evidence: Alertmanagerの通知の記録と，運用の作業の記録
+-    timing: 定常(毎日)
++    timing: 非定常(期限を過ぎたとき．検査は毎日)
+     actor: 自動
+     runbook: runbooks/vulnerability-triage.md
+     records:
+@@ -350,6 +354,7 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++        match: { job: escalation }
+ 
+   - id: shared-policy
+     title: 組織の共通ルールの適用
+@@ -381,3 +386,37 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++        match: { job: deploy }
++
++  - id: supply-chain-scorecard
++    title: サプライチェーンの健全性の評価
++    category: 運用管理
++    requirements: [SSDF:PO.4, ISO27001:A.5.21]
++    mechanisms:
++      - workflow: scorecard.yml
++        job: analysis
++    evidence: OpenSSF Scorecardの結果(JSON)をartifactとして保存
++    timing: 定常(毎週)
++    actor: 自動
++
++  - id: monthly-report
++    title: 月次報告
++    category: 運用管理
++    requirements: [SOC2:CC2.2, SOC2:CC4.1, ISO27001:A.5.35]
++    mechanisms:
++      - task: ops:report
++    evidence: 月次報告(out/report-YYYY-MM.md)を証跡の保管場所に保管
++    timing: 定常(毎月)
++    actor: 人
++    runbook: runbooks/monthly-report.md
++
++  - id: checksheet-response
++    title: セキュリティチェックシートへの回答
++    category: 業務運用
++    requirements: [SOC2:CC2.3, ISO27001:A.5.36]
++    mechanisms:
++      - task: ops:checksheet
++    evidence: 回答の下書きと，提出した回答の記録
++    timing: 非定常(顧客や監査から依頼があったとき)
++    actor: 人
++    runbook: runbooks/checksheet.md
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index 9d1b519..2788649 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -86,6 +86,16 @@ mainに入るには，standards.yaml の `change.required_approvals` 人の承
+ `deploy.yml`は，`release.yml`が作ったイメージの署名とprovenanceを検証してから，ダイジェストで指定してデプロイする．
+ 手元からのデプロイや，検証を飛ばしたデプロイはしない．
+ 
++## 報告
++
++運用の状況は，毎月の初めに前の月の分を報告する([手順書](runbooks/monthly-report.md))．
++
++| 報告 | 宛先 | 頻度 |
++| --- | --- | --- |
++| 月次報告(証跡の有無，脆弱性と例外，Scorecard) | セキュリティ責任者，経営者 | 毎月 |
++| 期限を過ぎた脆弱性 | オンコールの担当者，セキュリティ責任者 | 発生のたび(脆弱性の対応とエスカレーション) |
++| チェックシートの回答 | 依頼した顧客や監査人 | 依頼のたび([手順書](runbooks/checksheet.md)) |
++
+ ## 権限
+ 
+ | 権限 | 承認する人 | 決まり |
+diff --git a/app/ops/runbooks/checksheet.md b/app/ops/runbooks/checksheet.md
+new file mode 100644
+index 0000000..e37cad0
+--- /dev/null
++++ b/app/ops/runbooks/checksheet.md
+@@ -0,0 +1,23 @@
++# セキュリティチェックシートへの回答
++
++顧客や監査から受け取ったセキュリティチェックシートに，運用項目と証跡を示して答える手順．
++
++## 手順
++
++1. 受け取ったチェックシートの質問を，`checksheets/<顧客の名前>.yaml`に書き写す．
++   質問ごとに，その質問が問う規格の要求(`requirements`)を書く．要求の書き方は`ops/items.yaml`と同じにする．
++2. 回答の下書きを作る．
++
++   ```console
++   mise run ops:checksheet checksheets/<顧客の名前>.yaml
++   ```
++
++3. `out/checksheet-<顧客の名前>.md`を読み，回答を確かめる．
++   - 「はい」：示された運用項目が，質問に本当に答えているかを確かめる．要求が重なっても，質問の範囲が違うことがある．
++   - 「要確認」：対応する運用項目がない．仕組みがなければ「いいえ」と答え，対応の予定を書く．クラウドの事業者の責任の範囲(物理的なセキュリティなど)なら，事業者の報告書(SOC 2など)を示す．
++4. 証跡を求められたら，月次報告や証跡の保管場所の結果を渡す．渡す前に，秘密情報が含まれないかを確かめる．
++5. セキュリティ責任者が回答を確かめてから提出する．
++
++## 証跡
++
++- チェックシートのYAML，回答の下書き，提出した回答．
+diff --git a/app/ops/runbooks/monthly-report.md b/app/ops/runbooks/monthly-report.md
+new file mode 100644
+index 0000000..a48a06e
+--- /dev/null
++++ b/app/ops/runbooks/monthly-report.md
+@@ -0,0 +1,36 @@
++# 月次報告
++
++運用の状況を毎月まとめ，セキュリティ責任者と経営者に報告する手順．
++報告の宛先と頻度は，運用方針(policy.md)にある．
++
++## 手順
++
++1. 月の初めに，前の月のOpenSSF Scorecardの結果を取得する．
++   GitHubの`scorecard`のワークフローの最新の実行から，`evidence-scorecard`のartifactを`out/evidence/scorecard/`に置く．
++
++   ```console
++   gh run download --name evidence-scorecard --dir out/evidence/scorecard
++   ```
++
++2. 報告を作る．本番の証跡の保管場所とログを読める認証情報で実行する．
++
++   ```console
++   mise run ops:report --month YYYY-MM
++   ```
++
++3. `out/report-YYYY-MM.md`を読み，次のものを確かめる．
++   - 結果が「なし」の運用項目：仕組みが動かなかったか，証跡が保管されなかった．原因を調べ，直す．
++   - 直す期限を過ぎた脆弱性：[脆弱性のトリアージ](vulnerability-triage.md)の手順で対応を決める．
++   - 30日以内に期限の来る例外：担当者に，直すか延長を申請するかを決めてもらう．
++4. 確かめた結果と対応を報告に書き足し，宛先に送る．
++5. 報告を証跡の保管場所に置く．
++
++   ```console
++   cp out/report-YYYY-MM.md out/evidence/
++   mise run evidence:upload
++   ```
++
++## 証跡
++
++- 証跡の保管場所の月次報告．
++- 報告を送った記録(メールやチャット)．
+diff --git a/app/ops/schema/items.schema.json b/app/ops/schema/items.schema.json
+index 3cb00cf..367e1ef 100644
+--- a/app/ops/schema/items.schema.json
++++ b/app/ops/schema/items.schema.json
+@@ -136,6 +136,19 @@
+               "type": "string"
+             }
+           }
++        },
++        {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "task"
++          ],
++          "properties": {
++            "task": {
++              "description": "人が動かすmiseのタスク(app/mise.toml)",
++              "type": "string"
++            }
++          }
+         }
+       ]
+     },
+@@ -182,6 +195,20 @@
+           "items": {
+             "type": "string"
+           }
++        },
++        "match": {
++          "description": "答えに使うログを絞る項目と値(例：{ job: backup })．月次報告が記録を探すのに使う",
++          "type": "object",
++          "additionalProperties": {
++            "anyOf": [
++              {
++                "type": "string"
++              },
++              {
++                "type": "integer"
++              }
++            ]
++          }
+         }
+       }
+     }
+diff --git a/app/tests/gates/eol.test.ts b/app/tests/gates/eol.test.ts
+index 893523d..e17dfa4 100644
+--- a/app/tests/gates/eol.test.ts
++++ b/app/tests/gates/eol.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from "vitest";
+-import { fixture, run } from "./helpers.ts";
++import { fixture, readResult, run } from "./helpers.ts";
+ 
+ /** fixtures/eol/<name> の mise.toml とDockerfileを，2026-10-04 の時点のデータで検査する． */
+ function eol(name: string) {
+@@ -37,5 +37,6 @@ describe("gate:eol", () => {
+     const result = eol("ok");
+     expect(result.output).toContain("none near the end of support");
+     expect(result.status).toBe(0);
++    expect(readResult("eol").problems).toEqual([]);
+   });
+ });
+diff --git a/app/tests/gates/exceptions.test.ts b/app/tests/gates/exceptions.test.ts
+index c9532d4..6a3118e 100644
+--- a/app/tests/gates/exceptions.test.ts
++++ b/app/tests/gates/exceptions.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from "vitest";
+-import { fixture, run } from "./helpers.ts";
++import { fixture, readResult, run } from "./helpers.ts";
+ 
+ /** fixtures/exceptions/<name>.yaml の例外を，2026-10-04 の時点で検査する． */
+ function checkExceptions(name: string) {
+@@ -19,12 +19,14 @@ describe("gate:exceptions", () => {
+     const result = checkExceptions("within");
+     expect(result.output).toContain("1 active, 0 expired");
+     expect(result.status).toBe(0);
++    expect(readResult("exceptions").problems).toEqual([]);
+   });
+ 
+   it("期限を過ぎた例外があれば失敗する", () => {
+     const result = checkExceptions("expired");
+     expect(result.output).toContain("EXC-001: 期限(2026-09-30)を過ぎている");
+     expect(result.status).toBe(1);
++    expect(readResult("exceptions").problems).toHaveLength(1);
+   });
+ 
+   it("期限が基準値の最長の日数を超える例外があれば失敗する", () => {
+diff --git a/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/items.md b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/items.md
+new file mode 100644
+index 0000000..1aa6a65
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/items.yaml
+new file mode 100644
+index 0000000..f8f6347
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/items.yaml
+@@ -0,0 +1,20 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
++    records:
++      - question: 変更の記録を追う
++        asker: 開発チーム
++        within: 1日以内
++        keep_days: 30
++        log: api
++        fields: [time, request_id]
++        match: { job: deploy }
+diff --git a/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/logs.yaml b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/logs.yaml
+new file mode 100644
+index 0000000..5d29772
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/logs.yaml
+@@ -0,0 +1,10 @@
++forbidden_fields: [password]
++types:
++  api:
++    description: APIの処理の記録
++    destination: /app/api
++    readers: [開発チーム]
++    fields:
++      time: { type: string, description: 時刻 }
++      request_id: { type: string, description: リクエストの識別子 }
++    required: [time, request_id]
+diff --git a/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/records.md b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/records.md
+new file mode 100644
+index 0000000..a73e580
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/records.md
+@@ -0,0 +1,15 @@
++<!-- このファイルは mise run ops:render で items.yaml，logs.yaml，standards.yaml から生成する．手で編集しない． -->
++
++# 運用項目とログの対応表
++
++## ログで答える問い
++
++| 運用項目 | 問い | 誰が | いつまでに | 遡る期間 | ログ | 項目 |
++| --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更の記録を追う | 開発チーム | 1日以内 | 30日 | api | time, request_id, route |
++
++## ログの種類
++
++| 種類 | 用途 | 送り先 | 閲覧できる人 | 保管期間 |
++| --- | --- | --- | --- | --- |
++| api | APIの処理の記録 | /app/api | 開発チーム | 30日 |
+diff --git a/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/standards.yaml
+new file mode 100644
+index 0000000..b2343fa
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-unknown-match/ops/standards.yaml
+@@ -0,0 +1,26 @@
++change:
++  required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
++exception:
++  max_days: 90
++license:
++  allowed: [MIT]
++evidence:
++  retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
++eol:
++  warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/records-unknown-match/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/records-unknown-match/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-unknown-match/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/fixtures/ops-verify/unknown-task/mise.toml b/app/tests/gates/fixtures/ops-verify/unknown-task/mise.toml
+new file mode 100644
+index 0000000..61a5143
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/unknown-task/mise.toml
+@@ -0,0 +1,2 @@
++[tasks."ops:report"]
++run = "echo report"
+diff --git a/app/tests/gates/fixtures/ops-verify/unknown-task/ops/items.md b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/items.md
+new file mode 100644
+index 0000000..b125c99
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check<br>mise run ops:report<br>mise run ops:checksheet | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/unknown-task/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/items.yaml
+new file mode 100644
+index 0000000..c16f683
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/items.yaml
+@@ -0,0 +1,14 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++      - task: ops:report
++      - task: ops:checksheet
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
+diff --git a/app/tests/gates/fixtures/ops-verify/unknown-task/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/unknown-task/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/standards.yaml
+new file mode 100644
+index 0000000..b2343fa
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/unknown-task/ops/standards.yaml
+@@ -0,0 +1,26 @@
++change:
++  required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
++exception:
++  max_days: 90
++license:
++  allowed: [MIT]
++evidence:
++  retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
++eol:
++  warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/unknown-task/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/unknown-task/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/unknown-task/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/helpers.ts b/app/tests/gates/helpers.ts
+index c4b7588..771a42d 100644
+--- a/app/tests/gates/helpers.ts
++++ b/app/tests/gates/helpers.ts
+@@ -1,5 +1,5 @@
+ import { spawnSync } from "node:child_process";
+-import { mkdtempSync } from "node:fs";
++import { mkdtempSync, readFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join, resolve } from "node:path";
+ 
+@@ -17,6 +17,13 @@ export function fixture(...parts: string[]): string {
+  */
+ export const evidenceDir = mkdtempSync(join(tmpdir(), "gate-evidence-"));
+ 
++/** ゲートが証跡に残した結果(<ゲート>/result.json)を読む． */
++export function readResult(gate: string): { problems: string[] } {
++  return JSON.parse(
++    readFileSync(join(evidenceDir, gate, "result.json"), "utf8"),
++  );
++}
++
+ /** コマンドを実行し，終了コードと出力を返す． */
+ export function run(command: string, args: string[], cwd = appRoot) {
+   const result = spawnSync(command, args, {
+diff --git a/app/tests/gates/iam.test.ts b/app/tests/gates/iam.test.ts
+index 518cd61..7e2ee01 100644
+--- a/app/tests/gates/iam.test.ts
++++ b/app/tests/gates/iam.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from "vitest";
+-import { fixture, run } from "./helpers.ts";
++import { fixture, readResult, run } from "./helpers.ts";
+ 
+ /** fixtures/iam/<name> のOpenTofuのコードとポリシーを検査する． */
+ function iam(name: string) {
+@@ -49,5 +49,6 @@ describe("gate:iam", () => {
+     const result = iam("good");
+     expect(result.output).toContain("no problems");
+     expect(result.status).toBe(0);
++    expect(readResult("iam").problems).toEqual([]);
+   });
+ });
+diff --git a/app/tests/gates/ops-verify.test.ts b/app/tests/gates/ops-verify.test.ts
+index 36b73ab..9473ddf 100644
+--- a/app/tests/gates/ops-verify.test.ts
++++ b/app/tests/gates/ops-verify.test.ts
+@@ -58,4 +58,21 @@ describe("ops:verify", () => {
+     expect(result.output).toContain("must have required property 'severity'");
+     expect(result.status).toBe(1);
+   });
++
++  it("人が動かすタスクが mise.toml になければ失敗する", () => {
++    const result = verify("unknown-task");
++    expect(result.output).toContain(
++      "change-management: mise.toml にタスク ops:checksheet がない",
++    );
++    expect(result.output).not.toContain("タスク ops:report がない");
++    expect(result.status).toBe(1);
++  });
++
++  it("ログを絞る項目(match)が，ログの設計になければ失敗する", () => {
++    const result = verify("records-unknown-match");
++    expect(result.output).toContain(
++      "ログの種類 api に，絞り込みの項目 job がない",
++    );
++    expect(result.status).toBe(1);
++  });
+ });
+diff --git a/app/tests/gates/pinning.test.ts b/app/tests/gates/pinning.test.ts
+index 6b423cd..be37af8 100644
+--- a/app/tests/gates/pinning.test.ts
++++ b/app/tests/gates/pinning.test.ts
+@@ -1,5 +1,5 @@
+ import { describe, expect, it } from "vitest";
+-import { fixture, run } from "./helpers.ts";
++import { fixture, readResult, run } from "./helpers.ts";
+ 
+ /** fixtures/pinning/<name> のワークフローを検査する． */
+ function pinning(name: string) {
+@@ -22,11 +22,13 @@ describe("gate:pinning", () => {
+       "lint.yml@main がハッシュで固定されていない",
+     );
+     expect(result.status).toBe(1);
++    expect(readResult("pinning").problems).toHaveLength(2);
+   });
+ 
+   it("ハッシュで固定した参照と，同じリポジトリの中の参照だけなら通る", () => {
+     const result = pinning("pinned");
+     expect(result.output).toContain("all pinned");
+     expect(result.status).toBe(0);
++    expect(readResult("pinning").problems).toEqual([]);
+   });
+ });
+diff --git a/app/tests/ops/report.test.ts b/app/tests/ops/report.test.ts
+new file mode 100644
+index 0000000..7b108bb
+--- /dev/null
++++ b/app/tests/ops/report.test.ts
+@@ -0,0 +1,52 @@
++import { readFileSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { beforeAll, describe, expect, it } from "vitest";
++import { appRoot, run } from "../gates/helpers.ts";
++
++// 本番の環境(mise run up で作った環境)の証跡から，月次報告を作って確かめる．
++// ほかのテストの証跡と混ざらないよう，2099年1月の日付で証跡を置く．
++const month = "2099-01";
++let report: string;
++let result: ReturnType<typeof run>;
++
++beforeAll(() => {
++  const bucket = run("tofu", [
++    "-chdir=infra",
++    "output",
++    "-raw",
++    "evidence_bucket",
++  ]).output.trim();
++  const file = join(tmpdir(), "trivy.json");
++  writeFileSync(file, "{}");
++  run("aws", [
++    "s3",
++    "cp",
++    file,
++    `s3://${bucket}/${month}-15/test/sca/trivy.json`,
++  ]);
++  result = run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/ops/report.ts",
++    "--month",
++    month,
++  ]);
++  report = readFileSync(join(appRoot, `out/report-${month}.md`), "utf8");
++}, 120_000);
++
++describe("月次報告", () => {
++  it("その月の証跡が見つかった運用項目を示す", () => {
++    expect(result.status, result.output).toBe(0);
++    expect(report).toMatch(/\| dependency-vulnerabilities \|.*\| あり \|/);
++  });
++
++  it("定常の運用項目で証跡が欠けていれば，それを示す", () => {
++    expect(report).toMatch(/\| actions-pinning \|.*\| なし \|/);
++    expect(result.output).toContain("actions-pinning");
++  });
++
++  it("非定常の運用項目は，記録がなくても欠けたとしない", () => {
++    expect(report).toMatch(/\| deploy-verification \|.*\| 該当なし \|/);
++  });
++});
+diff --git a/app/tools/gates/config.ts b/app/tools/gates/config.ts
+index 213ec17..8933ccb 100644
+--- a/app/tools/gates/config.ts
++++ b/app/tools/gates/config.ts
+@@ -1,7 +1,8 @@
+ // DockerfileとOpenTofuのコードの設定の誤りを，Trivyで検査する．
+ // 基準値の重大度以上の誤りがあれば失敗する．例外に載った誤りは，期限まで外す．
+ import { parseArgs } from "node:util";
+-import { evidenceDirOf, runTrivy } from "./trivy.ts";
++import { evidenceDirOf } from "./evidence.ts";
++import { runTrivy } from "./trivy.ts";
+ 
+ if (import.meta.main) {
+   const { values } = parseArgs({
+diff --git a/app/tools/gates/eol.ts b/app/tools/gates/eol.ts
+index abe4208..a07b9cf 100644
+--- a/app/tools/gates/eol.ts
++++ b/app/tools/gates/eol.ts
+@@ -6,6 +6,7 @@ import { join } from "node:path";
+ import { parseArgs } from "node:util";
+ import { parse } from "smol-toml";
+ import { readStandards } from "../ops/standards.ts";
++import { writeResult } from "./evidence.ts";
+ 
+ /** 調べる対象．where は人が読むための場所である． */
+ export type Target = { where: string; product: string; version: string };
+@@ -119,6 +120,7 @@ if (import.meta.main) {
+     values.today,
+     readStandards(values.ops).eol.warn_days,
+   );
++  writeResult("eol", { problems, targets });
+   for (const problem of problems) {
+     console.error(problem);
+   }
+diff --git a/app/tools/gates/evidence.ts b/app/tools/gates/evidence.ts
+new file mode 100644
+index 0000000..1a2914d
+--- /dev/null
++++ b/app/tools/gates/evidence.ts
+@@ -0,0 +1,21 @@
++// ゲートの証跡に共通の処理．
++import { mkdirSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++
++/** ゲートの証跡の置き場所．ゲートのテストでは EVIDENCE_DIR で一時的な場所に替える． */
++export function evidenceDirOf(gate: string): string {
++  const dir = join(process.env.EVIDENCE_DIR ?? "out/evidence", gate);
++  mkdirSync(dir, { recursive: true });
++  return dir;
++}
++
++/** ゲートの結果(見つかった問題と，調べた対象など)を，証跡の <ゲート>/result.json に残す． */
++export function writeResult(
++  gate: string,
++  result: { problems: string[] } & Record<string, unknown>,
++): void {
++  writeFileSync(
++    join(evidenceDirOf(gate), "result.json"),
++    `${JSON.stringify(result, null, 2)}\n`,
++  );
++}
+diff --git a/app/tools/gates/exceptions.ts b/app/tools/gates/exceptions.ts
+index ed44509..25d0d1c 100644
+--- a/app/tools/gates/exceptions.ts
++++ b/app/tools/gates/exceptions.ts
+@@ -5,6 +5,7 @@ import {
+   readExceptions,
+   readStandards,
+ } from "../ops/standards.ts";
++import { writeResult } from "./evidence.ts";
+ 
+ const day = 24 * 60 * 60 * 1000;
+ 
+@@ -44,6 +45,10 @@ if (import.meta.main) {
+     readStandards(values.ops).exception.max_days,
+     values.today,
+   );
++  writeResult("exceptions", {
++    problems,
++    exceptions: exceptions.map((e) => e.id),
++  });
+   for (const problem of problems) {
+     console.error(problem);
+   }
+diff --git a/app/tools/gates/iam.ts b/app/tools/gates/iam.ts
+index 7785785..9cd0182 100644
+--- a/app/tools/gates/iam.ts
++++ b/app/tools/gates/iam.ts
+@@ -6,6 +6,7 @@
+ import { readdirSync, readFileSync } from "node:fs";
+ import { join } from "node:path";
+ import { parseArgs } from "node:util";
++import { writeResult } from "./evidence.ts";
+ 
+ type Statement = {
+   Effect: string;
+@@ -98,6 +99,10 @@ if (import.meta.main) {
+       ),
+     ),
+   ];
++  writeResult("iam", {
++    problems,
++    files: [...tf, ...policies.map((f) => `policies/${f}`)],
++  });
+   for (const problem of problems) {
+     console.error(problem);
+   }
+diff --git a/app/tools/gates/image.ts b/app/tools/gates/image.ts
+index 3b4b12b..75dbbb0 100644
+--- a/app/tools/gates/image.ts
++++ b/app/tools/gates/image.ts
+@@ -2,7 +2,8 @@
+ // 基準値の重大度以上の脆弱性があるか，サポートが終わったOSを使っていれば失敗する．
+ import { readFileSync } from "node:fs";
+ import { parseArgs } from "node:util";
+-import { evidenceDirOf, runTrivy } from "./trivy.ts";
++import { evidenceDirOf } from "./evidence.ts";
++import { runTrivy } from "./trivy.ts";
+ 
+ type Report = {
+   Metadata?: { OS?: { Family: string; Name: string; EOSL?: boolean } };
+diff --git a/app/tools/gates/pinning.ts b/app/tools/gates/pinning.ts
+index 2d9a26d..748eb7f 100644
+--- a/app/tools/gates/pinning.ts
++++ b/app/tools/gates/pinning.ts
+@@ -4,6 +4,7 @@ import { readdirSync } from "node:fs";
+ import { join } from "node:path";
+ import { parseArgs } from "node:util";
+ import { readYaml } from "../ops/items.ts";
++import { writeResult } from "./evidence.ts";
+ 
+ type Workflow = {
+   jobs?: Record<string, { uses?: string; steps?: { uses?: string }[] }>;
+@@ -33,6 +34,7 @@ if (import.meta.main) {
+       (ref) => `${file}: ${ref} がハッシュで固定されていない`,
+     ),
+   );
++  writeResult("pinning", { problems, workflows: files });
+   for (const problem of problems) {
+     console.error(problem);
+   }
+diff --git a/app/tools/gates/policy.ts b/app/tools/gates/policy.ts
+index e995faa..5c8c09f 100644
+--- a/app/tools/gates/policy.ts
++++ b/app/tools/gates/policy.ts
+@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
+ import { readdirSync, writeFileSync } from "node:fs";
+ import { basename, join } from "node:path";
+ import { parseArgs } from "node:util";
+-import { evidenceDirOf } from "./trivy.ts";
++import { evidenceDirOf } from "./evidence.ts";
+ 
+ type Result = {
+   filename: string;
+diff --git a/app/tools/gates/sca.ts b/app/tools/gates/sca.ts
+index 49bd866..9662f12 100644
+--- a/app/tools/gates/sca.ts
++++ b/app/tools/gates/sca.ts
+@@ -1,7 +1,8 @@
+ // 依存関係の既知の脆弱性を，Trivyで検査する．
+ // 基準値の重大度以上の脆弱性があれば失敗する．例外に載った脆弱性は，期限まで外す．
+ import { parseArgs } from "node:util";
+-import { evidenceDirOf, runTrivy } from "./trivy.ts";
++import { evidenceDirOf } from "./evidence.ts";
++import { runTrivy } from "./trivy.ts";
+ 
+ if (import.meta.main) {
+   const { values } = parseArgs({
+diff --git a/app/tools/gates/sla.ts b/app/tools/gates/sla.ts
+index 04b9914..de9d3b6 100644
+--- a/app/tools/gates/sla.ts
++++ b/app/tools/gates/sla.ts
+@@ -11,7 +11,7 @@ import {
+   readStandards,
+   type Severity,
+ } from "../ops/standards.ts";
+-import { evidenceDirOf } from "./trivy.ts";
++import { evidenceDirOf } from "./evidence.ts";
+ 
+ const day = 24 * 60 * 60 * 1000;
+ 
+diff --git a/app/tools/gates/trivy.ts b/app/tools/gates/trivy.ts
+index 3df7dce..81675d3 100644
+--- a/app/tools/gates/trivy.ts
++++ b/app/tools/gates/trivy.ts
+@@ -1,6 +1,6 @@
+ // Trivyを使うゲート(sca，image，config)に共通の処理．
+ import { spawnSync } from "node:child_process";
+-import { mkdirSync, writeFileSync } from "node:fs";
++import { writeFileSync } from "node:fs";
+ import { join } from "node:path";
+ import { stringify } from "yaml";
+ import {
+@@ -10,13 +10,6 @@ import {
+   severitiesFrom,
+ } from "../ops/standards.ts";
+ 
+-/** ゲートの証跡の置き場所．ゲートのテストでは EVIDENCE_DIR で一時的な場所に替える． */
+-export function evidenceDirOf(gate: string): string {
+-  const dir = join(process.env.EVIDENCE_DIR ?? "out/evidence", gate);
+-  mkdirSync(dir, { recursive: true });
+-  return dir;
+-}
+-
+ /**
+  * 例外を，Trivyの除外の設定(.trivyignore.yaml の形)に変える．
+  * 影響がない(not_affected)脆弱性は，除外ではなくOpenVEXの文書(toOpenVex)で伝える．
+diff --git a/app/tools/ops/checksheet.test.ts b/app/tools/ops/checksheet.test.ts
+new file mode 100644
+index 0000000..58627b5
+--- /dev/null
++++ b/app/tools/ops/checksheet.test.ts
+@@ -0,0 +1,52 @@
++import { describe, expect, it } from "vitest";
++import { answer } from "./checksheet.ts";
++import type { Item } from "./items.ts";
++
++const item = (id: string, requirements: string[]): Item => ({
++  id,
++  title: id,
++  category: "基盤運用",
++  requirements,
++  mechanisms: [{ workflow: "gates.yml", job: id }],
++  evidence: `${id}の結果`,
++  timing: "定常(変更ごと)",
++  actor: "自動",
++});
++
++const items = [
++  item("sca", ["ISO27001:A.8.8", "SOC2:CC7.1"]),
++  item("triage", ["ISO27001:A.8.8"]),
++  item("backup", ["ISO27001:A.8.13"]),
++];
++
++describe("answer", () => {
++  it("質問の要求に合う運用項目があれば「はい」と答え，その項目を示す", () => {
++    const [a] = answer(
++      [
++        {
++          id: "Q1",
++          text: "脆弱性を管理していますか",
++          requirements: ["ISO27001:A.8.8"],
++        },
++      ],
++      items,
++    );
++    expect(a.answer).toBe("はい");
++    expect(a.items.map((i) => i.id)).toEqual(["sca", "triage"]);
++  });
++
++  it("合う運用項目がなければ「要確認」と答える", () => {
++    const [a] = answer(
++      [
++        {
++          id: "Q2",
++          text: "物理的な入退室を管理していますか",
++          requirements: ["ISO27001:A.7.2"],
++        },
++      ],
++      items,
++    );
++    expect(a.answer).toBe("要確認");
++    expect(a.items).toEqual([]);
++  });
++});
+diff --git a/app/tools/ops/checksheet.ts b/app/tools/ops/checksheet.ts
+new file mode 100644
+index 0000000..f113898
+--- /dev/null
++++ b/app/tools/ops/checksheet.ts
+@@ -0,0 +1,88 @@
++// セキュリティチェックシートの回答の下書きを作る．
++// 質問の要求(requirements)と運用項目の要求を突き合わせ，答えに使える運用項目と証跡を示す．
++// 使い方：mise run ops:checksheet <チェックシートのYAML>
++import { mkdirSync, writeFileSync } from "node:fs";
++import { basename, extname, join } from "node:path";
++import { parseArgs } from "node:util";
++import { type Item, type ItemsFile, readYaml } from "./items.ts";
++
++/** チェックシートの質問．requirements には，その質問が問う規格の要求を書く． */
++export type Question = { id: string; text: string; requirements: string[] };
++
++export type Answer = {
++  question: Question;
++  answer: "はい" | "要確認";
++  items: Item[];
++};
++
++/** 質問ごとに，要求が1つでも重なる運用項目を探して答える． */
++export function answer(questions: Question[], items: Item[]): Answer[] {
++  return questions.map((question) => {
++    const matched = items.filter((item) =>
++      item.requirements.some((r) => question.requirements.includes(r)),
++    );
++    return {
++      question,
++      answer: matched.length > 0 ? "はい" : "要確認",
++      items: matched,
++    };
++  });
++}
++
++/** 回答の下書きをMarkdownにする． */
++export function renderChecksheet(title: string, answers: Answer[]): string {
++  const lines = [
++    `# ${title} の回答の下書き`,
++    "",
++    "mise run ops:checksheet で生成した．回答する前に，人が内容を確かめる．",
++    "",
++  ];
++  for (const { question, answer, items } of answers) {
++    lines.push(`## ${question.id} ${question.text}`, "", `回答：${answer}`, "");
++    if (items.length === 0) {
++      lines.push(
++        `対応する運用項目がない(要求：${question.requirements.join("，")})．`,
++        "",
++      );
++      continue;
++    }
++    lines.push(
++      "| 運用項目 | 仕組みが動いた証跡 | 手順書 |",
++      "| --- | --- | --- |",
++    );
++    for (const item of items) {
++      lines.push(
++        `| ${item.id}(${item.title}) | ${item.evidence} | ${item.runbook ?? ""} |`,
++      );
++    }
++    lines.push("");
++  }
++  return lines.join("\n");
++}
++
++if (import.meta.main) {
++  const { values, positionals } = parseArgs({
++    allowPositionals: true,
++    options: {
++      ops: { type: "string", default: "ops" },
++    },
++  });
++  const [file] = positionals;
++  if (!file) {
++    console.error("チェックシートのYAMLを指定する");
++    process.exit(1);
++  }
++  const sheet = readYaml(file) as { title: string; questions: Question[] };
++  const { items } = readYaml(join(values.ops, "items.yaml")) as ItemsFile;
++  const answers = answer(sheet.questions, items);
++  for (const { question, answer, items } of answers) {
++    console.log(`${question.id} ${question.text} → ${answer}`);
++    if (items.length > 0) {
++      console.log(`    運用項目: ${items.map((i) => i.id).join(", ")}`);
++    }
++  }
++  mkdirSync("out", { recursive: true });
++  const out = join("out", `checksheet-${basename(file, extname(file))}.md`);
++  writeFileSync(out, renderChecksheet(sheet.title, answers));
++  console.log(`wrote ${out}`);
++}
+diff --git a/app/tools/ops/items.ts b/app/tools/ops/items.ts
+index 007a06f..d64f3bc 100644
+--- a/app/tools/ops/items.ts
++++ b/app/tools/ops/items.ts
+@@ -1,11 +1,12 @@
+ import { readFileSync } from "node:fs";
+ import { parse } from "yaml";
+ 
+-/** 仕組み．ワークフローのジョブ，アラートのルール，外部のサービスが読む設定ファイルのどれかである． */
++/** 仕組み．ワークフローのジョブ，アラートのルール，外部のサービスが読む設定ファイル，人が動かすタスクのどれかである． */
+ export type Mechanism =
+   | { workflow: string; job: string }
+   | { alert: string }
+-  | { file: string };
++  | { file: string }
++  | { task: string };
+ 
+ /** 運用項目がログで答える問い． */
+ export type LogRecord = {
+@@ -15,6 +16,8 @@ export type LogRecord = {
+   keep_days: number;
+   log: string;
+   fields: string[];
++  /** 答えに使うログを絞る項目と値． */
++  match?: Record<string, string | number>;
+ };
+ 
+ /** 運用項目．ops/schema/items.schema.json の形に合う． */
+diff --git a/app/tools/ops/logs.ts b/app/tools/ops/logs.ts
+index 4372cf8..4c6b608 100644
+--- a/app/tools/ops/logs.ts
++++ b/app/tools/ops/logs.ts
+@@ -53,6 +53,13 @@ export function checkRecords(
+           );
+         }
+       }
++      for (const field of Object.keys(record.match ?? {})) {
++        if (!(field in type.fields)) {
++          problems.push(
++            `${item.id}: ログの種類 ${record.log} に，絞り込みの項目 ${field} がない`,
++          );
++        }
++      }
+       longest[record.log] = Math.max(
+         longest[record.log] ?? 0,
+         record.keep_days,
+diff --git a/app/tools/ops/render.ts b/app/tools/ops/render.ts
+index abd9f96..47627ba 100644
+--- a/app/tools/ops/render.ts
++++ b/app/tools/ops/render.ts
+@@ -38,6 +38,7 @@ export function render({ items }: ItemsFile): string {
+ function describeMechanism(m: Mechanism): string {
+   if ("alert" in m) return `alert: ${m.alert}`;
+   if ("file" in m) return `file: ${m.file}`;
++  if ("task" in m) return `mise run ${m.task}`;
+   return `${m.workflow}: ${m.job}`;
+ }
+ 
+diff --git a/app/tools/ops/report.ts b/app/tools/ops/report.ts
+new file mode 100644
+index 0000000..123dc77
+--- /dev/null
++++ b/app/tools/ops/report.ts
+@@ -0,0 +1,189 @@
++// 月次報告を作る．
++// 運用項目ごとに，その月に仕組みが動いた証跡があるかを確かめ，脆弱性と例外の状況とまとめる．
++// 証跡は，records の match で絞ったログ(CloudWatch Logs)と，gates.yml のジョブが証跡の保管場所に残したものを探す．
++// 使い方：mise run ops:report --month YYYY-MM
++import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { checkSla } from "../gates/sla.ts";
++import { type Item, type ItemsFile, readYaml } from "./items.ts";
++import { sh, tofuOutput } from "./run.ts";
++import { readExceptions, readStandards } from "./standards.ts";
++
++/** 証跡を探す場所．ログの記録か，証跡の保管場所のゲートの結果である． */
++export type Source =
++  | { log: string; match: Record<string, string | number> }
++  | { gate: string };
++
++/** 運用項目の証跡を探す場所を返す．探す場所がなければ空である． */
++export function sourcesOf(item: Item): Source[] {
++  return [
++    ...(item.records ?? []).flatMap((r) =>
++      r.match ? [{ log: r.log, match: r.match }] : [],
++    ),
++    ...item.mechanisms.flatMap((m) =>
++      "workflow" in m && m.workflow === "gates.yml" ? [{ gate: m.job }] : [],
++    ),
++  ];
++}
++
++/** 定常の運用項目か．非定常だけの項目は，記録がなくても欠けたとしない． */
++export function isRegular(item: Item): boolean {
++  return /(^|[^非])定常/.test(item.timing);
++}
++
++function describe(source: Source): string {
++  if ("gate" in source) {
++    return `証跡の ${source.gate}/`;
++  }
++  const match = Object.entries(source.match)
++    .map(([k, v]) => `${k}=${v}`)
++    .join(",");
++  return `${source.log} のログ(${match})`;
++}
++
++/** その月の証跡の保管場所にある，ゲートの名前(<日付>/<コミット>/<ゲート>/)の一覧． */
++function gatesWithEvidence(bucket: string, month: string): Set<string> {
++  const keys = JSON.parse(
++    sh("aws", [
++      "s3api",
++      "list-objects-v2",
++      "--bucket",
++      bucket,
++      "--prefix",
++      `${month}-`,
++      "--query",
++      "Contents[].Key",
++      "--output",
++      "json",
++    ]) || "null",
++  ) as string[] | null;
++  return new Set((keys ?? []).map((k) => k.split("/")[2]));
++}
++
++/** その月の，match に合うログの記録の数． */
++function countLogs(
++  source: { log: string; match: Record<string, string | number> },
++  start: number,
++  end: number,
++): number {
++  const prefix = process.env.LOG_GROUP_PREFIX ?? "/app/";
++  const pattern = Object.entries(source.match)
++    .map(([k, v]) => `$.${k} = ${JSON.stringify(v)}`)
++    .join(" && ");
++  const result = JSON.parse(
++    sh("aws", [
++      "logs",
++      "filter-log-events",
++      "--log-group-name",
++      `${prefix}${source.log}`,
++      "--start-time",
++      String(start),
++      "--end-time",
++      String(end),
++      "--filter-pattern",
++      `{ ${pattern} }`,
++      "--output",
++      "json",
++    ]),
++  ) as { events: unknown[] };
++  return result.events.length;
++}
++
++if (import.meta.main) {
++  const today = new Date().toISOString().slice(0, 10);
++  const { values } = parseArgs({
++    options: {
++      month: { type: "string", default: today.slice(0, 7) },
++      today: { type: "string", default: today },
++      ops: { type: "string", default: "ops" },
++      exceptions: { type: "string", default: "ops/exceptions.yaml" },
++      scorecard: {
++        type: "string",
++        default: "out/evidence/scorecard/results.json",
++      },
++    },
++  });
++  const month = values.month;
++  const start = Date.parse(`${month}-01T00:00:00Z`);
++  const next = new Date(start);
++  next.setUTCMonth(next.getUTCMonth() + 1);
++  const end = next.getTime();
++
++  const { items } = readYaml(join(values.ops, "items.yaml")) as ItemsFile;
++  const gates = gatesWithEvidence(tofuOutput("evidence_bucket"), month);
++  const rows = items.map((item) => {
++    const sources = sourcesOf(item);
++    const found = sources.every((s) =>
++      "gate" in s ? gates.has(s.gate) : countLogs(s, start, end) > 0,
++    );
++    let result = "対象外";
++    if (sources.length > 0) {
++      result = found ? "あり" : isRegular(item) ? "なし" : "該当なし";
++    }
++    return { item, sources, result };
++  });
++  const checked = rows.filter((r) => r.sources.length > 0);
++  const missing = rows.filter((r) => r.result === "なし");
++
++  const exceptions = readExceptions(values.exceptions);
++  const sla = checkSla(
++    exceptions,
++    readStandards(values.ops).vulnerability.sla_days,
++    values.today,
++  );
++  const soon = new Date(Date.parse(values.today) + 30 * 24 * 60 * 60 * 1000)
++    .toISOString()
++    .slice(0, 10);
++  const expiring = exceptions.filter(
++    (e) => e.expires >= values.today && e.expires <= soon,
++  );
++  const scorecard = existsSync(values.scorecard)
++    ? String(JSON.parse(readFileSync(values.scorecard, "utf8")).score)
++    : "未取得";
++
++  const lines = [
++    `# 月次報告 ${month}`,
++    "",
++    `mise run ops:report で ${values.today} に生成した．`,
++    "",
++    "## 運用項目ごとの証跡",
++    "",
++    "「なし」は，定常の運用項目でその月の証跡が見つからなかったことを示す．",
++    "「該当なし」は，非定常の運用項目で，その月に行う機会がなかったことを示す．",
++    "「対象外」は，証跡を自動で探さない運用項目である(仕組みの結果や変更履歴で確かめる)．",
++    "",
++    "| 運用項目 | 名前 | 探した証跡 | 結果 |",
++    "| --- | --- | --- | --- |",
++    ...rows.map(
++      (r) =>
++        `| ${r.item.id} | ${r.item.title} | ${r.sources.map(describe).join("<br>")} | ${r.result} |`,
++    ),
++    "",
++    "## 脆弱性と例外",
++    "",
++    `- 直す期限を過ぎた脆弱性：${sla.overdue.length}件${sla.overdue.map((o) => ` ${o.exception.id}(${o.exception.target})`).join("")}`,
++    `- 影響がないと判断した脆弱性：${sla.notAffected.length}件`,
++    `- 30日以内に期限の来る例外：${expiring.length}件${expiring.map((e) => ` ${e.id}(${e.expires})`).join("")}`,
++    "",
++    "## OpenSSF Scorecard",
++    "",
++    `点数：${scorecard}`,
++    "",
++  ];
++  mkdirSync("out", { recursive: true });
++  const out = join("out", `report-${month}.md`);
++  writeFileSync(out, lines.join("\n"));
++  console.log(`wrote ${out}`);
++  console.log(
++    `  items: ${items.length} (checked: ${checked.length}, evidence found: ${rows.filter((r) => r.result === "あり").length})`,
++  );
++  console.log(
++    `  missing evidence: ${missing.map((r) => r.item.id).join(", ") || "なし"}`,
++  );
++  console.log(`  vulnerabilities over SLA: ${sla.overdue.length}`);
++  console.log(
++    `  exceptions expiring within 30 days: ${expiring.length}${expiring.map((e) => ` (${e.id})`).join("")}`,
++  );
++  console.log(`  OpenSSF Scorecard: ${scorecard}`);
++}
+diff --git a/app/tools/ops/verify.ts b/app/tools/ops/verify.ts
+index 38b3fef..dc0e136 100644
+--- a/app/tools/ops/verify.ts
++++ b/app/tools/ops/verify.ts
+@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
+ import { parseArgs } from "node:util";
+ import { Ajv2020 } from "ajv/dist/2020.js";
+ import addFormats from "ajv-formats";
++import { parse as parseToml } from "smol-toml";
+ import { alertRulesPath } from "./alerts.ts";
+ import { type ItemsFile, readYaml } from "./items.ts";
+ import { checkRecords, type LogsFile, renderRecords } from "./logs.ts";
+@@ -77,6 +78,21 @@ export function verify(options: VerifyOptions): Problem[] {
+         }
+         continue;
+       }
++      if ("task" in mechanism) {
++        // 題材のタスクは，ops/ の1つ上の mise.toml にある．
++        const miseToml = join(options.opsDir, "..", "mise.toml");
++        const tasks = existsSync(miseToml)
++          ? ((parseToml(readFileSync(miseToml, "utf8")) as { tasks?: object })
++              .tasks ?? {})
++          : {};
++        if (!(mechanism.task in tasks)) {
++          problems.push({
++            file: itemsFile,
++            message: `${item.id}: mise.toml にタスク ${mechanism.task} がない`,
++          });
++        }
++        continue;
++      }
+       if ("alert" in mechanism) {
+         if (!alerts.includes(mechanism.alert)) {
+           problems.push({

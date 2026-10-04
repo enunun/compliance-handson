@@ -1,0 +1,616 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 7043f80..9d11e10 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -92,10 +92,40 @@ jobs:
+           name: evidence-sast
+           path: app/out/evidence/
+ 
++  image:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@v5
++      - uses: jdx/mise-action@v3
++      - run: mise run gate:image
++      - uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: evidence-image
++          path: app/out/evidence/
++
++  config:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@v5
++      - uses: jdx/mise-action@v3
++      - run: mise run gate:config
++      - uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: evidence-config
++          path: app/out/evidence/
++
+   # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
+   # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
+   evidence:
+-    needs: [secrets, sca, sbom, sast]
++    needs: [secrets, sca, sbom, sast, image, config]
+     if: always()
+     runs-on: ubuntu-latest
+     services:
+diff --git a/app/apps/api/Dockerfile b/app/apps/api/Dockerfile
+index 549e468..cc7f8b1 100644
+--- a/app/apps/api/Dockerfile
++++ b/app/apps/api/Dockerfile
+@@ -7,7 +7,10 @@ RUN go mod download
+ COPY . .
+ RUN CGO_ENABLED=0 go build -o /out/api ./cmd/api
+ 
+-FROM alpine:3.20
++# 実行するのはGoのバイナリだけなので，シェルもパッケージ管理も持たない最小のイメージを使う．
++FROM gcr.io/distroless/static-debian12:nonroot
+ COPY --from=build /out/api /usr/local/bin/api
++# rootではない利用者(nonroot)で動かす．
++USER 65532:65532
+ EXPOSE 8080
+-CMD ["api"]
++ENTRYPOINT ["/usr/local/bin/api"]
+diff --git a/app/infra/database.tf b/app/infra/database.tf
+index 23633e2..48ac1bb 100644
+--- a/app/infra/database.tf
++++ b/app/infra/database.tf
+@@ -22,6 +22,7 @@ resource "aws_db_instance" "app" {
+   username            = "app"
+   password            = random_password.db.result
+   skip_final_snapshot = true
++  storage_encrypted   = true
+ 
+   lifecycle {
+     # MiniStackは指定しない値にallocated_storageと同じ値を返すので，差分から外す．
+diff --git a/app/infra/evidence.tf b/app/infra/evidence.tf
+index 4f2d821..d156a56 100644
+--- a/app/infra/evidence.tf
++++ b/app/infra/evidence.tf
+@@ -9,6 +9,24 @@ resource "aws_s3_bucket" "evidence" {
+   object_lock_enabled = true
+ }
+ 
++resource "aws_s3_bucket_public_access_block" "evidence" {
++  bucket                  = aws_s3_bucket.evidence.id
++  block_public_acls       = true
++  block_public_policy     = true
++  ignore_public_acls      = true
++  restrict_public_buckets = true
++}
++
++resource "aws_s3_bucket_server_side_encryption_configuration" "evidence" {
++  bucket = aws_s3_bucket.evidence.id
++  rule {
++    apply_server_side_encryption_by_default {
++      sse_algorithm     = "aws:kms"
++      kms_master_key_id = aws_kms_key.storage.arn
++    }
++  }
++}
++
+ resource "aws_s3_bucket_versioning" "evidence" {
+   bucket = aws_s3_bucket.evidence.id
+   versioning_configuration {
+diff --git a/app/infra/exports.tf b/app/infra/exports.tf
+index acfc052..caeaa1b 100644
+--- a/app/infra/exports.tf
++++ b/app/infra/exports.tf
+@@ -1,18 +1,22 @@
+-# メモのエクスポートの置き場所．共有のリンクで誰でも取得できるようにする．
++# メモのエクスポートの置き場所．公開せず，取得には署名つきのURLを使う．
+ resource "aws_s3_bucket" "exports" {
+   bucket = "app-exports"
+ }
+ 
+-resource "aws_s3_bucket_policy" "exports_public_read" {
++resource "aws_s3_bucket_public_access_block" "exports" {
++  bucket                  = aws_s3_bucket.exports.id
++  block_public_acls       = true
++  block_public_policy     = true
++  ignore_public_acls      = true
++  restrict_public_buckets = true
++}
++
++resource "aws_s3_bucket_server_side_encryption_configuration" "exports" {
+   bucket = aws_s3_bucket.exports.id
+-  policy = jsonencode({
+-    Version = "2012-10-17"
+-    Statement = [{
+-      Sid       = "PublicRead"
+-      Effect    = "Allow"
+-      Principal = "*"
+-      Action    = "s3:GetObject"
+-      Resource  = "${aws_s3_bucket.exports.arn}/*"
+-    }]
+-  })
++  rule {
++    apply_server_side_encryption_by_default {
++      sse_algorithm     = "aws:kms"
++      kms_master_key_id = aws_kms_key.storage.arn
++    }
++  }
+ }
+diff --git a/app/infra/kms.tf b/app/infra/kms.tf
+new file mode 100644
+index 0000000..67b91c6
+--- /dev/null
++++ b/app/infra/kms.tf
+@@ -0,0 +1,5 @@
++# S3のバケットを暗号化する鍵．鍵は自分たちで管理し，毎年自動で交換する．
++resource "aws_kms_key" "storage" {
++  description         = "S3のバケットの暗号化"
++  enable_key_rotation = true
++}
+diff --git a/app/mise.toml b/app/mise.toml
+index 50b4552..5bdf8dd 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -67,6 +67,20 @@ description = "コードの脆弱性をSemgrepで検査する"
+ depends = ["install"]
+ run = "pnpm exec tsx tools/gates/sast.ts"
+ 
++[tasks."image:build"]
++description = "APIのコンテナイメージを作る(DOCKER_BUILD_ARGS でビルドの引数を足せる)"
++run = "docker build ${DOCKER_BUILD_ARGS:-} -t app-api:local apps/api"
++
++[tasks."gate:image"]
++description = "APIのコンテナイメージの脆弱性とOSのサポートを検査する"
++depends = ["install", "image:build"]
++run = "pnpm exec tsx tools/gates/image.ts"
++
++[tasks."gate:config"]
++description = "DockerfileとOpenTofuのコードの設定の誤りを検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/config.ts"
++
+ [tasks.sbom]
+ description = "コンポーネントごとのSBOM(CycloneDX)を作る"
+ depends = ["install"]
+@@ -106,7 +120,7 @@ depends = ["lint", "test", "test:gates", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+diff --git a/app/ops/items.md b/app/ops/items.md
+index ee71e09..9783b17 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -12,3 +12,5 @@
+ | license-policy | ライセンスの検査 | 運用管理 | ISO27001:A.5.32 | ci.yml: sbom | ライセンスを含むSBOMと，CIのsbomジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | evidence-retention | 証跡の保管 | 基盤運用 | ISO27001:A.5.33<br>SOC2:CC4.1 | ci.yml: evidence | 証跡の保管場所の設定(Object Lock，保管期間)と，運用テストの結果 | 定常(変更ごと) | 自動 |  |
+ | sast | コードの脆弱性検査(SAST) | 基盤運用 | ISO27001:A.8.28<br>SSDF:PW.7 | ci.yml: sast | Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
++| container-image | コンテナイメージの検査 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.9 | ci.yml: image | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
++| iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | ci.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index beb249b..2851dbd 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -94,3 +94,25 @@ items:
+     timing: 定常(変更ごと)
+     actor: 自動
+     runbook: runbooks/exception-request.md
++
++  - id: container-image
++    title: コンテナイメージの検査
++    category: 基盤運用
++    requirements: [ISO27001:A.8.8, ISO27001:A.8.9]
++    mechanisms:
++      - workflow: ci.yml
++        job: image
++    evidence: Trivyの結果(JSON)を証跡の保管場所に保管
++    timing: 定常(変更ごと)
++    actor: 自動
++
++  - id: iac-config
++    title: DockerfileとOpenTofuの設定の検査
++    category: 基盤運用
++    requirements: [ISO27001:A.8.9, SOC2:CC7.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: config
++    evidence: Trivyの結果(JSON)を証跡の保管場所に保管
++    timing: 定常(変更ごと)
++    actor: 自動
+diff --git a/app/tests/gates/config.test.ts b/app/tests/gates/config.test.ts
+new file mode 100644
+index 0000000..10ee01a
+--- /dev/null
++++ b/app/tests/gates/config.test.ts
+@@ -0,0 +1,33 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/config/<target> の設定を検査する． */
++function config(target: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/config.ts",
++    "--target",
++    fixture("config", target),
++    "--exceptions",
++    fixture("exceptions", "none.yaml"),
++  ]);
++}
++
++describe("gate:config", () => {
++  it("rootで動くDockerfileがあれば失敗する", () => {
++    const result = config("root-user");
++    expect(result.output).toContain("DS-0002");
++    expect(result.status).toBe(1);
++  });
++
++  it("誰でも読めるS3のバケットがあれば失敗する", () => {
++    const result = config("public-bucket");
++    expect(result.output).toContain("AWS-0087");
++    expect(result.status).toBe(1);
++  });
++
++  it("設定の誤りがなければ通る", () => {
++    expect(config("good").status).toBe(0);
++  });
++});
+diff --git a/app/tests/gates/fixtures/config/good/Dockerfile b/app/tests/gates/fixtures/config/good/Dockerfile
+new file mode 100644
+index 0000000..f39bbf7
+--- /dev/null
++++ b/app/tests/gates/fixtures/config/good/Dockerfile
+@@ -0,0 +1,4 @@
++FROM gcr.io/distroless/static-debian12:nonroot
++COPY app /app
++USER 65532:65532
++ENTRYPOINT ["/app"]
+diff --git a/app/tests/gates/fixtures/config/good/main.tf b/app/tests/gates/fixtures/config/good/main.tf
+new file mode 100644
+index 0000000..4095676
+--- /dev/null
++++ b/app/tests/gates/fixtures/config/good/main.tf
+@@ -0,0 +1,25 @@
++resource "aws_kms_key" "storage" {
++  enable_key_rotation = true
++}
++
++resource "aws_s3_bucket" "shared" {
++  bucket = "shared"
++}
++
++resource "aws_s3_bucket_public_access_block" "shared" {
++  bucket                  = aws_s3_bucket.shared.id
++  block_public_acls       = true
++  block_public_policy     = true
++  ignore_public_acls      = true
++  restrict_public_buckets = true
++}
++
++resource "aws_s3_bucket_server_side_encryption_configuration" "shared" {
++  bucket = aws_s3_bucket.shared.id
++  rule {
++    apply_server_side_encryption_by_default {
++      sse_algorithm     = "aws:kms"
++      kms_master_key_id = aws_kms_key.storage.arn
++    }
++  }
++}
+diff --git a/app/tests/gates/fixtures/config/public-bucket/main.tf b/app/tests/gates/fixtures/config/public-bucket/main.tf
+new file mode 100644
+index 0000000..a33b9b5
+--- /dev/null
++++ b/app/tests/gates/fixtures/config/public-bucket/main.tf
+@@ -0,0 +1,16 @@
++resource "aws_s3_bucket" "shared" {
++  bucket = "shared"
++}
++
++resource "aws_s3_bucket_policy" "shared" {
++  bucket = aws_s3_bucket.shared.id
++  policy = jsonencode({
++    Version = "2012-10-17"
++    Statement = [{
++      Effect    = "Allow"
++      Principal = "*"
++      Action    = "s3:GetObject"
++      Resource  = "${aws_s3_bucket.shared.arn}/*"
++    }]
++  })
++}
+diff --git a/app/tests/gates/fixtures/config/root-user/Dockerfile b/app/tests/gates/fixtures/config/root-user/Dockerfile
+new file mode 100644
+index 0000000..48bf69b
+--- /dev/null
++++ b/app/tests/gates/fixtures/config/root-user/Dockerfile
+@@ -0,0 +1,3 @@
++FROM gcr.io/distroless/static-debian12
++COPY app /app
++ENTRYPOINT ["/app"]
+diff --git a/app/tests/gates/image.test.ts b/app/tests/gates/image.test.ts
+new file mode 100644
+index 0000000..7c3d86d
+--- /dev/null
++++ b/app/tests/gates/image.test.ts
+@@ -0,0 +1,28 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** コンテナイメージを検査する． */
++function image(ref: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/image.ts",
++    "--image",
++    ref,
++    "--exceptions",
++    fixture("exceptions", "none.yaml"),
++  ]);
++}
++
++describe("gate:image", () => {
++  it("サポートが終わったOSのイメージなら失敗する", () => {
++    const result = image("alpine:3.20");
++    expect(result.output).toContain("alpine 3.20");
++    expect(result.output).toContain("サポートが終わっている");
++    expect(result.status).toBe(1);
++  });
++
++  it("サポート中で脆弱性のないイメージなら通る", () => {
++    expect(image("gcr.io/distroless/static-debian12:nonroot").status).toBe(0);
++  });
++});
+diff --git a/app/tools/gates/config.ts b/app/tools/gates/config.ts
+new file mode 100644
+index 0000000..213ec17
+--- /dev/null
++++ b/app/tools/gates/config.ts
+@@ -0,0 +1,26 @@
++// DockerfileとOpenTofuのコードの設定の誤りを，Trivyで検査する．
++// 基準値の重大度以上の誤りがあれば失敗する．例外に載った誤りは，期限まで外す．
++import { parseArgs } from "node:util";
++import { evidenceDirOf, runTrivy } from "./trivy.ts";
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      target: { type: "string", default: "." },
++      ops: { type: "string", default: "ops" },
++      exceptions: { type: "string", default: "ops/exceptions.yaml" },
++    },
++  });
++  const { status } = runTrivy({
++    args: [
++      "config",
++      "--skip-dirs",
++      "**/node_modules,**/.terraform,tests/gates/fixtures",
++      values.target,
++    ],
++    evidenceDir: evidenceDirOf("config"),
++    ops: values.ops,
++    exceptions: values.exceptions,
++  });
++  process.exit(status);
++}
+diff --git a/app/tools/gates/image.ts b/app/tools/gates/image.ts
+new file mode 100644
+index 0000000..3b4b12b
+--- /dev/null
++++ b/app/tools/gates/image.ts
+@@ -0,0 +1,33 @@
++// コンテナイメージを，Trivyで検査する．
++// 基準値の重大度以上の脆弱性があるか，サポートが終わったOSを使っていれば失敗する．
++import { readFileSync } from "node:fs";
++import { parseArgs } from "node:util";
++import { evidenceDirOf, runTrivy } from "./trivy.ts";
++
++type Report = {
++  Metadata?: { OS?: { Family: string; Name: string; EOSL?: boolean } };
++};
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      image: { type: "string", default: "app-api:local" },
++      ops: { type: "string", default: "ops" },
++      exceptions: { type: "string", default: "ops/exceptions.yaml" },
++    },
++  });
++  const { status, report } = runTrivy({
++    args: ["image", "--scanners", "vuln", values.image],
++    evidenceDir: evidenceDirOf("image"),
++    ops: values.ops,
++    exceptions: values.exceptions,
++  });
++  const os = (JSON.parse(readFileSync(report, "utf8")) as Report).Metadata?.OS;
++  if (os?.EOSL) {
++    console.error(
++      `${values.image}: ${os.Family} ${os.Name} はサポートが終わっている`,
++    );
++    process.exit(1);
++  }
++  process.exit(status);
++}
+diff --git a/app/tools/gates/sca.ts b/app/tools/gates/sca.ts
+index 50fdd56..49bd866 100644
+--- a/app/tools/gates/sca.ts
++++ b/app/tools/gates/sca.ts
+@@ -1,32 +1,7 @@
+ // 依存関係の既知の脆弱性を，Trivyで検査する．
+ // 基準値の重大度以上の脆弱性があれば失敗する．例外に載った脆弱性は，期限まで外す．
+-import { spawnSync } from "node:child_process";
+-import { mkdirSync, writeFileSync } from "node:fs";
+-import { join } from "node:path";
+ import { parseArgs } from "node:util";
+-import { stringify } from "yaml";
+-import {
+-  type Exception,
+-  readExceptions,
+-  readStandards,
+-  severitiesFrom,
+-} from "../ops/standards.ts";
+-
+-// 証跡の置き場所．ゲートのテストでは EVIDENCE_DIR で一時的な場所に替える．
+-const evidenceDir = join(process.env.EVIDENCE_DIR ?? "out/evidence", "sca");
+-// 例外から作るTrivyの除外の設定．どの例外を適用したかの記録として証跡に含める．
+-const ignoreFile = join(evidenceDir, "trivyignore.yaml");
+-
+-/** 例外を，Trivyの除外の設定(.trivyignore.yaml の形)に変える． */
+-export function toTrivyIgnore(exceptions: Exception[]) {
+-  return {
+-    vulnerabilities: exceptions.map((e) => ({
+-      id: e.target,
+-      statement: `${e.id}: ${e.reason} (承認：${e.approver})`,
+-      expired_at: e.expires,
+-    })),
+-  };
+-}
++import { evidenceDirOf, runTrivy } from "./trivy.ts";
+ 
+ if (import.meta.main) {
+   const { values } = parseArgs({
+@@ -36,42 +11,18 @@ if (import.meta.main) {
+       exceptions: { type: "string", default: "ops/exceptions.yaml" },
+     },
+   });
+-  const standards = readStandards(values.ops);
+-  const severity = severitiesFrom(standards.vulnerability.fail_severity);
+-
+-  mkdirSync(evidenceDir, { recursive: true });
+-  writeFileSync(
+-    ignoreFile,
+-    stringify(toTrivyIgnore(readExceptions(values.exceptions))),
+-  );
+-
+-  const report = join(evidenceDir, "trivy.json");
+-  const scan = spawnSync(
+-    "trivy",
+-    [
++  const { status } = runTrivy({
++    args: [
+       "fs",
+       "--scanners",
+       "vuln",
+-      "--severity",
+-      severity.join(","),
+-      "--ignorefile",
+-      ignoreFile,
+       "--skip-dirs",
+       "**/node_modules,tests/gates/fixtures",
+-      "--exit-code",
+-      "1",
+-      "--quiet",
+-      "--format",
+-      "json",
+-      "--output",
+-      report,
+       values.target,
+     ],
+-    { stdio: "inherit" },
+-  );
+-  // 人が読む表も出す．証跡はJSONの方である．
+-  spawnSync("trivy", ["convert", "--quiet", "--format", "table", report], {
+-    stdio: "inherit",
++    evidenceDir: evidenceDirOf("sca"),
++    ops: values.ops,
++    exceptions: values.exceptions,
+   });
+-  process.exit(scan.status ?? 1);
++  process.exit(status);
+ }
+diff --git a/app/tools/gates/trivy.ts b/app/tools/gates/trivy.ts
+new file mode 100644
+index 0000000..5847726
+--- /dev/null
++++ b/app/tools/gates/trivy.ts
+@@ -0,0 +1,79 @@
++// Trivyを使うゲート(sca，image，config)に共通の処理．
++import { spawnSync } from "node:child_process";
++import { mkdirSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { stringify } from "yaml";
++import {
++  type Exception,
++  readExceptions,
++  readStandards,
++  severitiesFrom,
++} from "../ops/standards.ts";
++
++/** ゲートの証跡の置き場所．ゲートのテストでは EVIDENCE_DIR で一時的な場所に替える． */
++export function evidenceDirOf(gate: string): string {
++  const dir = join(process.env.EVIDENCE_DIR ?? "out/evidence", gate);
++  mkdirSync(dir, { recursive: true });
++  return dir;
++}
++
++/** 例外を，Trivyの除外の設定(.trivyignore.yaml の形)に変える．脆弱性と設定の誤りの両方に使う． */
++export function toTrivyIgnore(exceptions: Exception[]) {
++  const entries = exceptions.map((e) => ({
++    id: e.target,
++    statement: `${e.id}: ${e.reason} (承認：${e.approver})`,
++    expired_at: e.expires,
++  }));
++  return { vulnerabilities: entries, misconfigurations: entries };
++}
++
++export type TrivyOptions = {
++  /** trivy のサブコマンドと，それに固有の引数． */
++  args: string[];
++  /** 証跡の置き場所(evidenceDirOf の結果)． */
++  evidenceDir: string;
++  ops: string;
++  exceptions: string;
++};
++
++/**
++ * 基準値の重大度と例外を使ってTrivyを実行し，結果をJSONで証跡に残す．
++ * 人が読む表も表示する．Trivyの終了コードを返す．
++ */
++export function runTrivy(options: TrivyOptions): {
++  status: number;
++  report: string;
++} {
++  const severity = severitiesFrom(
++    readStandards(options.ops).vulnerability.fail_severity,
++  );
++  // どの例外を適用したかの記録として，除外の設定も証跡に含める．
++  const ignoreFile = join(options.evidenceDir, "trivyignore.yaml");
++  writeFileSync(
++    ignoreFile,
++    stringify(toTrivyIgnore(readExceptions(options.exceptions))),
++  );
++  const report = join(options.evidenceDir, "trivy.json");
++  const scan = spawnSync(
++    "trivy",
++    [
++      ...options.args,
++      "--severity",
++      severity.join(","),
++      "--ignorefile",
++      ignoreFile,
++      "--exit-code",
++      "1",
++      "--quiet",
++      "--format",
++      "json",
++      "--output",
++      report,
++    ],
++    { stdio: "inherit" },
++  );
++  spawnSync("trivy", ["convert", "--quiet", "--format", "table", report], {
++    stdio: "inherit",
++  });
++  return { status: scan.status ?? 1, report };
++}

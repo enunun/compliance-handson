@@ -1,0 +1,1144 @@
+diff --git a/.github/CODEOWNERS b/.github/CODEOWNERS
+index c8c0fd9..071f154 100644
+--- a/.github/CODEOWNERS
++++ b/.github/CODEOWNERS
+@@ -5,3 +5,5 @@
+ /app/ops/exceptions.yaml @security-lead
+ /.github/CODEOWNERS @security-lead
+ /app/infra/policies/ @security-lead
++/app/policy/ @security-lead
++/.github/workflows/gates.yml @security-lead
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 9e273b2..ff96b0a 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -19,158 +19,13 @@ jobs:
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run check:code
+ 
+-  secrets:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-        with:
+-          # 履歴全体を検査するので，すべてのコミットを取得する．
+-          fetch-depth: 0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:secrets
+-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-        if: always()
+-        with:
+-          name: evidence-secrets
+-          path: app/out/evidence/
+-
+-  sca:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:sca
+-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-        if: always()
+-        with:
+-          name: evidence-sca
+-          path: app/out/evidence/
+-
+-  exceptions:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:exceptions
+-
+-  sla:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:sla
+-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-        if: always()
+-        with:
+-          name: evidence-sla
+-          path: app/out/evidence/
+-
+-  sbom:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:license
+-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-        if: always()
+-        with:
+-          name: evidence-sbom
+-          path: app/out/evidence/
+-
+-  sast:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:sast
+-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-        if: always()
+-        with:
+-          name: evidence-sast
+-          path: app/out/evidence/
+-
+-  image:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:image
+-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-        if: always()
+-        with:
+-          name: evidence-image
+-          path: app/out/evidence/
+-
+-  config:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:config
+-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-        if: always()
+-        with:
+-          name: evidence-config
+-          path: app/out/evidence/
+-
+-  pinning:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:pinning
+-
+-  eol:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:eol
+-
+-  iam:
+-    runs-on: ubuntu-latest
+-    defaults:
+-      run:
+-        working-directory: app
+-    steps:
+-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - run: mise run gate:iam
++  gates:
++    uses: ./.github/workflows/gates.yml
+ 
+   # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
+   # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
+   evidence:
+-    needs: [secrets, sca, sla, sbom, sast, image, config]
++    needs: [gates]
+     if: always()
+     runs-on: ubuntu-latest
+     services:
+diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+index c1b3c33..e6ce83f 100644
+--- a/.github/workflows/deploy.yml
++++ b/.github/workflows/deploy.yml
+@@ -1,6 +1,7 @@
+ name: deploy
+ 
+ # リリース済みのイメージを，本番のECSのサービスにデプロイする．画面から手で動かす．
++# release.yml が付けた署名とprovenanceを検証してから，ダイジェストで指定してデプロイする．
+ on:
+   workflow_dispatch:
+     inputs:
+@@ -17,6 +18,8 @@ jobs:
+     environment: production
+     permissions:
+       contents: read
++      packages: read # GHCRからイメージのダイジェストを得る
++      attestations: read # provenanceを検証する
+       id-token: write # OIDCでAWSのロールを引き受ける
+     defaults:
+       run:
+@@ -24,16 +27,30 @@ jobs:
+     steps:
+       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - name: GHCRにログインする
++        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
++      - name: タグからイメージのダイジェストを得る
++        id: image
++        env:
++          TAG: ${{ inputs.tag }}
++        run: |
++          image="$(echo "ghcr.io/${GITHUB_REPOSITORY}/api" | tr '[:upper:]' '[:lower:]')"
++          digest="$(docker buildx imagetools inspect "${image}:${TAG}" --format '{{json .Manifest.Digest}}' | tr -d '"')"
++          echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
++      - name: 署名とprovenanceを検証し，証跡に残す
++        env:
++          GH_TOKEN: ${{ github.token }}
++          REF: ${{ steps.image.outputs.ref }}
++        run: mise run release:verify "${REF}"
++      # AWSの認証情報は，検証が通ってから得る．
+       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+         with:
+           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+           aws-region: ap-northeast-1
+       - name: デプロイする
+         env:
+-          TAG: ${{ inputs.tag }}
+-        run: |
+-          image="$(echo "ghcr.io/${GITHUB_REPOSITORY}/api:${TAG}" | tr '[:upper:]' '[:lower:]')"
+-          mise run deploy --image "${image}"
++          REF: ${{ steps.image.outputs.ref }}
++        run: mise run deploy --image "${REF}"
+       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+diff --git a/.github/workflows/gates.yml b/.github/workflows/gates.yml
+new file mode 100644
+index 0000000..47153f7
+--- /dev/null
++++ b/.github/workflows/gates.yml
+@@ -0,0 +1,180 @@
++name: gates
++
++# ゲートのジョブ．ほかのワークフローから呼ぶ(reusable workflow)．
++# 組織のほかのリポジトリも，次のようにハッシュで固定して呼べる．
++#   uses: <owner>/<repo>/.github/workflows/gates.yml@<コミットのハッシュ>
++# 証跡は，ジョブごとに evidence-<ゲート> のartifactに残す．
++on:
++  workflow_call:
++    inputs:
++      working-directory:
++        description: 題材(mise.toml のあるディレクトリ)の場所
++        type: string
++        default: app
++
++permissions:
++  contents: read
++
++jobs:
++  secrets:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++        with:
++          # 履歴全体を検査するので，すべてのコミットを取得する．
++          fetch-depth: 0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:secrets
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-secrets
++          path: ${{ inputs.working-directory }}/out/evidence/
++
++  sca:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:sca
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-sca
++          path: ${{ inputs.working-directory }}/out/evidence/
++
++  exceptions:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:exceptions
++
++  sla:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:sla
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-sla
++          path: ${{ inputs.working-directory }}/out/evidence/
++
++  sbom:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:license
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-sbom
++          path: ${{ inputs.working-directory }}/out/evidence/
++
++  sast:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:sast
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-sast
++          path: ${{ inputs.working-directory }}/out/evidence/
++
++  image:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:image
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-image
++          path: ${{ inputs.working-directory }}/out/evidence/
++
++  config:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:config
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-config
++          path: ${{ inputs.working-directory }}/out/evidence/
++
++  pinning:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:pinning
++
++  eol:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:eol
++
++  iam:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:iam
++
++  policy:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: ${{ inputs.working-directory }}
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:policy
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-policy
++          path: ${{ inputs.working-directory }}/out/evidence/
+diff --git a/app/mise.toml b/app/mise.toml
+index b2875c0..9c80bfd 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -119,6 +119,11 @@ run = [
+   'trivy fs --quiet --format cyclonedx --output "${EVIDENCE_DIR:-out/evidence}/sbom/api.cdx.json" apps/api',
+ ]
+ 
++[tasks."gate:policy"]
++description = "ワークフローと運用項目を，組織の共通ルール(policy/)で検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/policy.ts"
++
+ [tasks."gate:license"]
+ description = "SBOMの依存関係のライセンスが，許可したものかを検査する"
+ depends = ["sbom"]
+@@ -159,7 +164,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:sla", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning", "gate:eol", "gate:iam"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:sla", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning", "gate:eol", "gate:iam", "gate:policy"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+diff --git a/app/ops/items.md b/app/ops/items.md
+index fb87686..b531856 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -5,16 +5,16 @@
+ | ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
+ | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+ | change-management | 変更管理 | 運用管理 | SOC2:CC8.1<br>ISO27001:A.8.32 | ci.yml: check | ブランチ保護の設定(JSON)と，プルリクエストのレビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+-| secret-detection | シークレット検出 | 運用管理 | ISO27001:A.5.17<br>ISO27001:A.8.4<br>SSDF:PS.1 | ci.yml: secrets | gitleaksの結果(JSON，キーは伏せ字)をCIのartifactとして保存 | 定常(変更ごと，コミットごと) | 自動 | [手順書](runbooks/secret-leak.md) |
+-| dependency-vulnerabilities | 依存関係の脆弱性検査 | 基盤運用 | ISO27001:A.8.8<br>SOC2:CC7.1<br>SSDF:PW.4 | ci.yml: sca | Trivyの結果(JSON)をCIのartifactとして保存 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
+-| exception-requests | 例外の申請と期限の管理 | 業務運用 | ISO27001:A.8.8<br>SOC2:CC3.4 | ci.yml: exceptions | exceptions.yaml の変更履歴(セキュリティ責任者が承認したプルリクエスト) | 非定常(申請のとき)と定常(変更ごとに期限を検査) | 人 | [手順書](runbooks/exception-request.md) |
+-| sbom | SBOMの作成 | 基盤運用 | SSDF:PS.3<br>METI:SBOM導入の手引 | ci.yml: sbom | コンポーネントごとのSBOM(CycloneDX)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
+-| license-policy | ライセンスの検査 | 運用管理 | ISO27001:A.5.32 | ci.yml: sbom | ライセンスを含むSBOMと，CIのsbomジョブの結果 | 定常(変更ごと) | 自動 |  |
++| secret-detection | シークレット検出 | 運用管理 | ISO27001:A.5.17<br>ISO27001:A.8.4<br>SSDF:PS.1 | gates.yml: secrets | gitleaksの結果(JSON，キーは伏せ字)をCIのartifactとして保存 | 定常(変更ごと，コミットごと) | 自動 | [手順書](runbooks/secret-leak.md) |
++| dependency-vulnerabilities | 依存関係の脆弱性検査 | 基盤運用 | ISO27001:A.8.8<br>SOC2:CC7.1<br>SSDF:PW.4 | gates.yml: sca | Trivyの結果(JSON)をCIのartifactとして保存 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
++| exception-requests | 例外の申請と期限の管理 | 業務運用 | ISO27001:A.8.8<br>SOC2:CC3.4 | gates.yml: exceptions | exceptions.yaml の変更履歴(セキュリティ責任者が承認したプルリクエスト) | 非定常(申請のとき)と定常(変更ごとに期限を検査) | 人 | [手順書](runbooks/exception-request.md) |
++| sbom | SBOMの作成 | 基盤運用 | SSDF:PS.3<br>METI:SBOM導入の手引 | gates.yml: sbom | コンポーネントごとのSBOM(CycloneDX)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
++| license-policy | ライセンスの検査 | 運用管理 | ISO27001:A.5.32 | gates.yml: sbom | ライセンスを含むSBOMと，CIのsbomジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | evidence-retention | 証跡の保管 | 基盤運用 | ISO27001:A.5.33<br>SOC2:CC4.1 | ci.yml: evidence | 証跡の保管場所の設定(Object Lock，保管期間)と，運用テストの結果 | 定常(変更ごと) | 自動 |  |
+-| sast | コードの脆弱性検査(SAST) | 基盤運用 | ISO27001:A.8.28<br>SSDF:PW.7 | ci.yml: sast | Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
+-| container-image | コンテナイメージの検査 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.9 | ci.yml: image | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
+-| iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | ci.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
+-| actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
++| sast | コードの脆弱性検査(SAST) | 基盤運用 | ISO27001:A.8.28<br>SSDF:PW.7 | gates.yml: sast | Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
++| container-image | コンテナイメージの検査 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.9 | gates.yml: image | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
++| iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | gates.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
++| actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | gates.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | artifact-signing | 成果物の署名とprovenance | 基盤運用 | SLSA:Build-L2<br>SSDF:PS.2 | release.yml: release | 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON) | 定常(リリースごと) | 自動 | [手順書](runbooks/verify-image.md) |
+ | service-monitoring | APIの監視 | 基盤運用 | ISO27001:A.8.16<br>SOC2:CC7.2 | alert: ApiHighErrorRate | アラートのルールとそのテストの結果，Alertmanagerの通知の記録 | 定常(常時) | 自動 | [手順書](runbooks/api-high-error-rate.md) |
+ | log-design | ログの設計 | 運用管理 | ISO27001:A.8.15 | ci.yml: check | 運用項目とログの対応表(records.md)と，ops:verify の結果 | 定常(変更ごと) | 自動 |  |
+@@ -23,9 +23,11 @@
+ | restore-test | リストアの訓練 | 基盤運用 | ISO27001:A.8.13<br>SOC2:A1.3 | backup.yml: backup | リストアの訓練の結果(元と戻した先の行数の比較)と，運用の作業の記録 | 定常(バックアップのたび) | 自動 | [手順書](runbooks/restore.md) |
+ | dependency-updates | 依存関係の更新 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.19 | file: renovate.json | Renovateが作った更新のプルリクエストと，そのレビューの記録 | 定常(毎週)と非定常(脆弱性の修正が出たとき) | 自動 |  |
+ | release-rescan | リリース済みのイメージの再検査 | 基盤運用 | ISO27001:A.8.8<br>SOC2:CC7.1 | rescan.yml: rescan | 再検査の結果(JSON)をartifactとして保存 | 定常(毎日) | 自動 |  |
+-| eol-tracking | サポートの終了の管理 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.5.21 | ci.yml: eol | CIのeolジョブの結果 | 定常(変更ごと) | 自動 |  |
+-| least-privilege | 権限を必要な分だけにする | 基盤運用 | ISO27001:A.5.15<br>ISO27001:A.8.2<br>SOC2:CC6.3 | ci.yml: iam | CIのiamジョブの結果と，policies/ のJSONの変更履歴 | 定常(変更ごと) | 自動 |  |
++| eol-tracking | サポートの終了の管理 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.5.21 | gates.yml: eol | CIのeolジョブの結果 | 定常(変更ごと) | 自動 |  |
++| least-privilege | 権限を必要な分だけにする | 基盤運用 | ISO27001:A.5.15<br>ISO27001:A.8.2<br>SOC2:CC6.3 | gates.yml: iam | CIのiamジョブの結果と，policies/ のJSONの変更履歴 | 定常(変更ごと) | 自動 |  |
+ | access-review | 権限の棚卸し | 業務運用 | ISO27001:A.5.18<br>SOC2:CC6.2 | access.yml: access-review | 棚卸しの報告(IAMの利用者とアクセスキー，CloudTrailの記録，GitHubの協力者) | 定常(standards.yaml の access.review_interval_days ごと) | 人 | [手順書](runbooks/access-review.md) |
+ | credential-rotation | 認証情報の交換 | 基盤運用 | ISO27001:A.5.17<br>SOC2:CC6.1 | access.yml: rotate-db-password | 交換の結果と，運用の作業の記録 | 定常(standards.yaml の credentials.max_age_days より短い間隔)と非定常(漏洩のとき) | 自動 | [手順書](runbooks/credential-rotation.md) |
+-| vulnerability-triage | 脆弱性のトリアージと期限の管理 | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | ci.yml: sla<br>rescan.yml: rescan | exceptions.yaml のトリアージの結果(見つかった日，状態，根拠)の変更履歴と，OpenVEXの文書 | 非定常(脆弱性が見つかったとき)と定常(変更ごと，毎日期限を検査) | 人 | [手順書](runbooks/vulnerability-triage.md) |
++| vulnerability-triage | 脆弱性のトリアージと期限の管理 | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | gates.yml: sla<br>rescan.yml: rescan | exceptions.yaml のトリアージの結果(見つかった日，状態，根拠)の変更履歴と，OpenVEXの文書 | 非定常(脆弱性が見つかったとき)と定常(変更ごと，毎日期限を検査) | 人 | [手順書](runbooks/vulnerability-triage.md) |
+ | escalation | 期限切れのエスカレーション | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | rescan.yml: rescan | Alertmanagerの通知の記録と，運用の作業の記録 | 定常(毎日) | 自動 | [手順書](runbooks/vulnerability-triage.md) |
++| shared-policy | 組織の共通ルールの適用 | 運用管理 | SSDF:PO.1<br>ISO27001:A.5.1 | gates.yml: policy | conftestの結果(JSON)と，policy/ の変更履歴 | 定常(変更ごと) | 自動 | [手順書](runbooks/shared-policy.md) |
++| deploy-verification | デプロイ前の検証 | 基盤運用 | SSDF:PS.2<br>SLSA:Build-L2<br>ISO27001:A.8.32 | deploy.yml: deploy | デプロイの前の署名とprovenanceの検証結果，デプロイの結果 | 非定常(デプロイのとき) | 人 | [手順書](runbooks/verify-image.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 925ace0..fff4e58 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -19,7 +19,7 @@ items:
+     category: 運用管理
+     requirements: [ISO27001:A.5.17, ISO27001:A.8.4, SSDF:PS.1]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: secrets
+     evidence: gitleaksの結果(JSON，キーは伏せ字)をCIのartifactとして保存
+     timing: 定常(変更ごと，コミットごと)
+@@ -31,7 +31,7 @@ items:
+     category: 基盤運用
+     requirements: [ISO27001:A.8.8, SOC2:CC7.1, SSDF:PW.4]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: sca
+     evidence: Trivyの結果(JSON)をCIのartifactとして保存
+     timing: 定常(変更ごと)
+@@ -43,7 +43,7 @@ items:
+     category: 業務運用
+     requirements: [ISO27001:A.8.8, SOC2:CC3.4]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: exceptions
+     evidence: exceptions.yaml の変更履歴(セキュリティ責任者が承認したプルリクエスト)
+     timing: 非定常(申請のとき)と定常(変更ごとに期限を検査)
+@@ -55,7 +55,7 @@ items:
+     category: 基盤運用
+     requirements: [SSDF:PS.3, METI:SBOM導入の手引]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: sbom
+     evidence: コンポーネントごとのSBOM(CycloneDX)を証跡の保管場所に保管
+     timing: 定常(変更ごと)
+@@ -66,7 +66,7 @@ items:
+     category: 運用管理
+     requirements: [ISO27001:A.5.32]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: sbom
+     evidence: ライセンスを含むSBOMと，CIのsbomジョブの結果
+     timing: 定常(変更ごと)
+@@ -88,7 +88,7 @@ items:
+     category: 基盤運用
+     requirements: [ISO27001:A.8.28, SSDF:PW.7]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: sast
+     evidence: Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管
+     timing: 定常(変更ごと)
+@@ -100,7 +100,7 @@ items:
+     category: 基盤運用
+     requirements: [ISO27001:A.8.8, ISO27001:A.8.9]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: image
+     evidence: Trivyの結果(JSON)を証跡の保管場所に保管
+     timing: 定常(変更ごと)
+@@ -111,7 +111,7 @@ items:
+     category: 基盤運用
+     requirements: [ISO27001:A.8.9, SOC2:CC7.1]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: config
+     evidence: Trivyの結果(JSON)を証跡の保管場所に保管
+     timing: 定常(変更ごと)
+@@ -122,7 +122,7 @@ items:
+     category: 基盤運用
+     requirements: [SLSA:Build, SSDF:PO.3]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: pinning
+     evidence: CIのpinningジョブの結果
+     timing: 定常(変更ごと)
+@@ -257,7 +257,7 @@ items:
+     category: 基盤運用
+     requirements: [ISO27001:A.8.8, ISO27001:A.5.21]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: eol
+     evidence: CIのeolジョブの結果
+     timing: 定常(変更ごと)
+@@ -268,7 +268,7 @@ items:
+     category: 基盤運用
+     requirements: [ISO27001:A.5.15, ISO27001:A.8.2, SOC2:CC6.3]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: iam
+     evidence: CIのiamジョブの結果と，policies/ のJSONの変更履歴
+     timing: 定常(変更ごと)
+@@ -323,7 +323,7 @@ items:
+     category: 運用管理
+     requirements: [ISO27001:A.8.8, SOC2:CC7.4]
+     mechanisms:
+-      - workflow: ci.yml
++      - workflow: gates.yml
+         job: sla
+       - workflow: rescan.yml
+         job: rescan
+@@ -350,3 +350,34 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++
++  - id: shared-policy
++    title: 組織の共通ルールの適用
++    category: 運用管理
++    requirements: [SSDF:PO.1, ISO27001:A.5.1]
++    mechanisms:
++      - workflow: gates.yml
++        job: policy
++    evidence: conftestの結果(JSON)と，policy/ の変更履歴
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/shared-policy.md
++
++  - id: deploy-verification
++    title: デプロイ前の検証
++    category: 基盤運用
++    requirements: [SSDF:PS.2, SLSA:Build-L2, ISO27001:A.8.32]
++    mechanisms:
++      - workflow: deploy.yml
++        job: deploy
++    evidence: デプロイの前の署名とprovenanceの検証結果，デプロイの結果
++    timing: 非定常(デプロイのとき)
++    actor: 人
++    runbook: runbooks/verify-image.md
++    records:
++      - question: 本番で動いているイメージを，いつ誰の操作でデプロイしたかを示す
++        asker: 監査人
++        within: 依頼から1週間以内
++        keep_days: 400
++        log: ops
++        fields: [time, job, result, detail]
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index 973db84..9d1b519 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -67,6 +67,25 @@ mainに入るには，standards.yaml の `change.required_approvals` 人の承
+ 
+ 手順は[脆弱性のトリアージ](runbooks/vulnerability-triage.md)にある．
+ 
++## 組織の共通ルール
++
++基準とゲートは，組織のどのリポジトリでも同じものを使う．
++共通のルール(`policy/`)とゲートのジョブ(`.github/workflows/gates.yml`)は，このリポジトリに置き，ほかのリポジトリはハッシュで固定して使う．
++
++共通のルールを変えるときの流れは次のとおりである([手順書](runbooks/shared-policy.md))．
++
++| 段階 | 誰が | 何をする |
++| --- | --- | --- |
++| 提案 | 誰でも | ルールとそのテストを変えるプルリクエストを作る |
++| 承認 | セキュリティ責任者 | 理由と，ほかのリポジトリへの影響を確かめて承認する |
++| 展開 | 各リポジトリの担当者 | 知らされた期限までに，ハッシュを替えるプルリクエストを取り込む |
++
++## デプロイ
++
++本番へのデプロイは，`deploy.yml`だけで行う．
++`deploy.yml`は，`release.yml`が作ったイメージの署名とprovenanceを検証してから，ダイジェストで指定してデプロイする．
++手元からのデプロイや，検証を飛ばしたデプロイはしない．
++
+ ## 権限
+ 
+ | 権限 | 承認する人 | 決まり |
+diff --git a/app/ops/records.md b/app/ops/records.md
+index 1cca680..3d30903 100644
+--- a/app/ops/records.md
++++ b/app/ops/records.md
+@@ -15,6 +15,7 @@
+ | access-review | 棚卸しの期間に，誰が誰の権限を変えたかを示す | セキュリティ責任者 | 棚卸しの日 | 90日 | audit | time, actor_id, action, target_id, result |
+ | credential-rotation | パスワードを決めた日数のうちに交換していたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
+ | escalation | 期限を過ぎた脆弱性を，いつ上位者に知らせたかを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
++| deploy-verification | 本番で動いているイメージを，いつ誰の操作でデプロイしたかを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
+ 
+ ## ログの種類
+ 
+diff --git a/app/ops/runbooks/shared-policy.md b/app/ops/runbooks/shared-policy.md
+new file mode 100644
+index 0000000..46fff81
+--- /dev/null
++++ b/app/ops/runbooks/shared-policy.md
+@@ -0,0 +1,41 @@
++# 組織の共通ルール
++
++組織のどのリポジトリにも同じ基準と検査を当てるための，共通のルールの使い方と変え方．
++共通のものは次の2つである．
++
++- `policy/`：conftestのルール(Rego)．ワークフローと運用項目の決まりを書く．
++- `.github/workflows/gates.yml`：ゲートのジョブ．ほかのワークフローから呼ぶ．
++
++## ほかのリポジトリで使う
++
++1. ワークフローから`gates.yml`を，コミットのハッシュで固定して呼ぶ．
++
++   ```yaml
++   jobs:
++     gates:
++       uses: <owner>/<repo>/.github/workflows/gates.yml@<コミットのハッシュ>
++       with:
++         working-directory: .
++   ```
++
++2. ルールは，`conftest pull`で取得する．
++
++   ```console
++   conftest pull git::https://github.com/<owner>/<repo>.git//app/policy?ref=<コミットのハッシュ> --policy policy
++   ```
++
++3. 更新は，ハッシュを替えるプルリクエストで取り込む(Renovateが作る)．
++
++## ルールを変える
++
++1. `policy/`のルールと，`tests/gates/policy.test.ts`のテストを一緒に変えるプルリクエストを作る．
++   ルールを足すときは，だめな例と良い例のfixtureを足す．
++2. 足したルールに今のリポジトリが合わなければ，同じプルリクエストで直す．
++3. セキュリティ責任者が承認する(CODEOWNERSで必須になっている)．
++4. ほかのリポジトリへは，それぞれの更新のプルリクエストで広がる．
++   広げる前に，各リポジトリの担当者に変更と期限を知らせる．
++
++## 証跡
++
++- `policy/`と`gates.yml`の変更履歴と，承認されたプルリクエスト．
++- CIの`policy`ジョブの結果(`policy/conftest.json`)．
+diff --git a/app/ops/runbooks/verify-image.md b/app/ops/runbooks/verify-image.md
+index 40d2d2d..2bf1364 100644
+--- a/app/ops/runbooks/verify-image.md
++++ b/app/ops/runbooks/verify-image.md
+@@ -20,6 +20,15 @@ GHCRにあるAPIのイメージが，このリポジトリの release.yml で作
+ 3. `out/evidence/release/`の`cosign-verify.json`と`provenance-verify.json`を確かめる．
+    provenanceには，ビルドしたワークフロー，コミット，実行の記録へのリンクが入っている．
+ 
++## デプロイ
++
++`deploy.yml`は，この手順の1と2を行ってから，ダイジェストで指定してデプロイする．
++GitHubの画面で`deploy`のワークフローを選び，タグを入れて動かす．
++`production`の環境に承認する人を設定しておくと，その人の承認を待ってから動く．
++
++前の版に戻すときも，戻す先のタグで`deploy.yml`を動かす．
++検証を飛ばして戻すことはしない．
++
+ ## 失敗したとき
+ 
+ 署名かprovenanceの検証に失敗したイメージは，デプロイしない．
+@@ -28,4 +37,5 @@ GHCRにあるAPIのイメージが，このリポジトリの release.yml で作
+ ## 証跡
+ 
+ - 検証の結果(`cosign-verify.json`，`provenance-verify.json`)．
+-- release.yml の実行の記録．
++- release.yml と deploy.yml の実行の記録．
++- デプロイの結果(`out/evidence/deploy/result.json`)と，`ops`のログの`deploy`の記録．
+diff --git a/app/policy/items.rego b/app/policy/items.rego
+new file mode 100644
+index 0000000..b2e745d
+--- /dev/null
++++ b/app/policy/items.rego
+@@ -0,0 +1,10 @@
++# 組織の共通ルール：運用項目(ops/items.yaml)．
++package items
++
++# 人が行う運用項目は，担当者が替わっても同じように行えるよう，手順書を持つ．
++deny contains msg if {
++	some item in input.items
++	item.actor == "人"
++	not item.runbook
++	msg := sprintf("%s: 人が行う運用項目に手順書(runbook)がない", [item.id])
++}
+diff --git a/app/policy/workflows.rego b/app/policy/workflows.rego
+new file mode 100644
+index 0000000..e384dd7
+--- /dev/null
++++ b/app/policy/workflows.rego
+@@ -0,0 +1,23 @@
++# 組織の共通ルール：GitHub Actionsのワークフロー(.github/workflows/*.yml)．
++package workflows
++
++# GITHUB_TOKEN の権限を既定(リポジトリの設定しだい)のままにせず，ワークフローごとに絞る．
++deny contains msg if {
++	not input.permissions
++	msg := "最上位に permissions を書いていない(GITHUB_TOKEN の権限をワークフローごとに絞る)"
++}
++
++# デプロイの前に，同じジョブでイメージの署名とprovenanceを検証する．
++deny contains msg if {
++	some name, job in input.jobs
++	some i, step in job.steps
++	contains(step.run, "mise run deploy")
++	not verified_before(job, i)
++	msg := sprintf("ジョブ %s が，mise run release:verify より前に mise run deploy を動かしている", [name])
++}
++
++verified_before(job, i) if {
++	some j, step in job.steps
++	j < i
++	contains(step.run, "mise run release:verify")
++}
+diff --git a/app/tests/gates/fixtures/policy/good/items.yaml b/app/tests/gates/fixtures/policy/good/items.yaml
+new file mode 100644
+index 0000000..c2956f4
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/good/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: exception-requests
++    title: 例外の申請
++    category: 業務運用
++    requirements: [ISO27001:A.8.8]
++    mechanisms:
++      - workflow: ci.yml
++        job: exceptions
++    evidence: exceptions.yaml の変更履歴
++    timing: 非定常
++    actor: 人
++    runbook: runbooks/exception-request.md
+diff --git a/app/tests/gates/fixtures/policy/good/workflows/deploy.yml b/app/tests/gates/fixtures/policy/good/workflows/deploy.yml
+new file mode 100644
+index 0000000..5b6b441
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/good/workflows/deploy.yml
+@@ -0,0 +1,9 @@
++on: workflow_dispatch
++permissions:
++  contents: read
++jobs:
++  deploy:
++    runs-on: ubuntu-latest
++    steps:
++      - run: mise run release:verify "$IMAGE"
++      - run: mise run deploy --image "$IMAGE"
+diff --git a/app/tests/gates/fixtures/policy/no-permissions/items.yaml b/app/tests/gates/fixtures/policy/no-permissions/items.yaml
+new file mode 100644
+index 0000000..c2956f4
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/no-permissions/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: exception-requests
++    title: 例外の申請
++    category: 業務運用
++    requirements: [ISO27001:A.8.8]
++    mechanisms:
++      - workflow: ci.yml
++        job: exceptions
++    evidence: exceptions.yaml の変更履歴
++    timing: 非定常
++    actor: 人
++    runbook: runbooks/exception-request.md
+diff --git a/app/tests/gates/fixtures/policy/no-permissions/workflows/ci.yml b/app/tests/gates/fixtures/policy/no-permissions/workflows/ci.yml
+new file mode 100644
+index 0000000..cdf7435
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/no-permissions/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: mise run check
+diff --git a/app/tests/gates/fixtures/policy/no-runbook/items.yaml b/app/tests/gates/fixtures/policy/no-runbook/items.yaml
+new file mode 100644
+index 0000000..5447418
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/no-runbook/items.yaml
+@@ -0,0 +1,11 @@
++items:
++  - id: exception-requests
++    title: 例外の申請
++    category: 業務運用
++    requirements: [ISO27001:A.8.8]
++    mechanisms:
++      - workflow: ci.yml
++        job: exceptions
++    evidence: exceptions.yaml の変更履歴
++    timing: 非定常
++    actor: 人
+diff --git a/app/tests/gates/fixtures/policy/no-runbook/workflows/deploy.yml b/app/tests/gates/fixtures/policy/no-runbook/workflows/deploy.yml
+new file mode 100644
+index 0000000..5b6b441
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/no-runbook/workflows/deploy.yml
+@@ -0,0 +1,9 @@
++on: workflow_dispatch
++permissions:
++  contents: read
++jobs:
++  deploy:
++    runs-on: ubuntu-latest
++    steps:
++      - run: mise run release:verify "$IMAGE"
++      - run: mise run deploy --image "$IMAGE"
+diff --git a/app/tests/gates/fixtures/policy/unverified-deploy/items.yaml b/app/tests/gates/fixtures/policy/unverified-deploy/items.yaml
+new file mode 100644
+index 0000000..c2956f4
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/unverified-deploy/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: exception-requests
++    title: 例外の申請
++    category: 業務運用
++    requirements: [ISO27001:A.8.8]
++    mechanisms:
++      - workflow: ci.yml
++        job: exceptions
++    evidence: exceptions.yaml の変更履歴
++    timing: 非定常
++    actor: 人
++    runbook: runbooks/exception-request.md
+diff --git a/app/tests/gates/fixtures/policy/unverified-deploy/workflows/deploy.yml b/app/tests/gates/fixtures/policy/unverified-deploy/workflows/deploy.yml
+new file mode 100644
+index 0000000..8b09102
+--- /dev/null
++++ b/app/tests/gates/fixtures/policy/unverified-deploy/workflows/deploy.yml
+@@ -0,0 +1,9 @@
++on: workflow_dispatch
++permissions:
++  contents: read
++jobs:
++  deploy:
++    runs-on: ubuntu-latest
++    steps:
++      - run: mise run deploy --image "$IMAGE"
++      - run: mise run release:verify "$IMAGE"
+diff --git a/app/tests/gates/policy.test.ts b/app/tests/gates/policy.test.ts
+new file mode 100644
+index 0000000..9864bf8
+--- /dev/null
++++ b/app/tests/gates/policy.test.ts
+@@ -0,0 +1,47 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/policy/<name> のワークフローと運用項目を，組織の共通ルール(policy/)で検査する． */
++function policy(name: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/policy.ts",
++    "--workflows",
++    fixture("policy", name, "workflows"),
++    "--items",
++    fixture("policy", name, "items.yaml"),
++  ]);
++}
++
++describe("gate:policy", () => {
++  it("署名を検証する前にデプロイするジョブがあれば失敗する", () => {
++    const result = policy("unverified-deploy");
++    expect(result.output).toContain(
++      "deploy.yml: ジョブ deploy が，mise run release:verify より前に mise run deploy を動かしている",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("最上位に permissions のないワークフローがあれば失敗する", () => {
++    const result = policy("no-permissions");
++    expect(result.output).toContain(
++      "ci.yml: 最上位に permissions を書いていない",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("人が行う運用項目に手順書がなければ失敗する", () => {
++    const result = policy("no-runbook");
++    expect(result.output).toContain(
++      "items.yaml: exception-requests: 人が行う運用項目に手順書(runbook)がない",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("ルールに合うものだけなら通る", () => {
++    const result = policy("good");
++    expect(result.output).toContain("policy: 2 files, 0 failures");
++    expect(result.status).toBe(0);
++  });
++});
+diff --git a/app/tests/ops/deploy.test.ts b/app/tests/ops/deploy.test.ts
+index cd1e053..99f2fe5 100644
+--- a/app/tests/ops/deploy.test.ts
++++ b/app/tests/ops/deploy.test.ts
+@@ -34,4 +34,16 @@ describe("デプロイ", () => {
+     expect(task.requiresCompatibilities).toEqual(["FARGATE"]);
+     expect(task.networkMode).toBe("awsvpc");
+   });
++
++  it("ダイジェストで指定していないイメージはデプロイしない", () => {
++    const result = run("pnpm", [
++      "exec",
++      "tsx",
++      "tools/ops/deploy.ts",
++      "--image",
++      "ghcr.io/example/compliance-handson/api:v1.0.0",
++    ]);
++    expect(result.status).toBe(1);
++    expect(result.output).toContain("ダイジェスト");
++  });
+ });
+diff --git a/app/tools/gates/policy.ts b/app/tools/gates/policy.ts
+new file mode 100644
+index 0000000..e995faa
+--- /dev/null
++++ b/app/tools/gates/policy.ts
+@@ -0,0 +1,70 @@
++// 組織の共通ルール(policy/ のRego)で，ワークフローと運用項目をconftestで検査する．
++// ルールは組織で1か所に置き，どのリポジトリも同じものを使う前提である．
++import { spawnSync } from "node:child_process";
++import { readdirSync, writeFileSync } from "node:fs";
++import { basename, join } from "node:path";
++import { parseArgs } from "node:util";
++import { evidenceDirOf } from "./trivy.ts";
++
++type Result = {
++  filename: string;
++  namespace: string;
++  failures?: { msg: string }[];
++};
++
++/** conftestで files を namespace のルールで検査し，ファイルごとの結果を返す． */
++function conftest(
++  policy: string,
++  namespace: string,
++  files: string[],
++): Result[] {
++  const result = spawnSync(
++    "conftest",
++    [
++      "test",
++      "--policy",
++      policy,
++      "--namespace",
++      namespace,
++      "--output",
++      "json",
++      ...files,
++    ],
++    { encoding: "utf8" },
++  );
++  if (result.status !== 0 && result.status !== 1) {
++    throw new Error(`conftest failed: ${result.stderr}`);
++  }
++  return JSON.parse(result.stdout);
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      policy: { type: "string", default: "policy" },
++      workflows: { type: "string", default: "../.github/workflows" },
++      items: { type: "string", default: "ops/items.yaml" },
++    },
++  });
++  const workflows = readdirSync(values.workflows)
++    .filter((f) => /\.ya?ml$/.test(f))
++    .map((f) => join(values.workflows, f));
++  const results = [
++    ...conftest(values.policy, "workflows", workflows),
++    ...conftest(values.policy, "items", [values.items]),
++  ];
++  writeFileSync(
++    join(evidenceDirOf("policy"), "conftest.json"),
++    `${JSON.stringify(results, null, 2)}\n`,
++  );
++  const problems = results.flatMap((r) =>
++    (r.failures ?? []).map((f) => `${basename(r.filename)}: ${f.msg}`),
++  );
++  for (const problem of problems) {
++    console.error(problem);
++  }
++  if (problems.length > 0) {
++    process.exit(1);
++  }
++  console.log(`policy: ${results.length} files, 0 failures`);
++}
+diff --git a/app/tools/ops/deploy.test.ts b/app/tools/ops/deploy.test.ts
+new file mode 100644
+index 0000000..0ce175a
+--- /dev/null
++++ b/app/tools/ops/deploy.test.ts
+@@ -0,0 +1,15 @@
++import { describe, expect, it } from "vitest";
++import { requireDigest } from "./deploy.ts";
++
++describe("requireDigest", () => {
++  it("ダイジェストで指定したイメージは受け付ける", () => {
++    const image = `ghcr.io/example/api@sha256:${"a".repeat(64)}`;
++    expect(requireDigest(image)).toBe(image);
++  });
++
++  it("タグで指定したイメージは拒む", () => {
++    expect(() => requireDigest("ghcr.io/example/api:v1.0.0")).toThrow(
++      "ダイジェスト",
++    );
++  });
++});
+diff --git a/app/tools/ops/deploy.ts b/app/tools/ops/deploy.ts
+index 58d0a87..dea65d6 100644
+--- a/app/tools/ops/deploy.ts
++++ b/app/tools/ops/deploy.ts
+@@ -2,6 +2,7 @@
+ // 今のタスク定義のイメージを替えた新しい版を作り，ECSのサービスに設定する．
+ // 使い方：mise run deploy --image <イメージ>
+ import { writeFileSync } from "node:fs";
++import { userInfo } from "node:os";
+ import { join } from "node:path";
+ import { parseArgs } from "node:util";
+ import { evidenceDir, opsLog, sh, tofuOutput } from "./run.ts";
+@@ -25,6 +26,19 @@ function aws(...args: string[]): unknown {
+   return JSON.parse(sh("aws", ["ecs", ...args, "--output", "json"]));
+ }
+ 
++/**
++ * イメージがダイジェストで指定されていることを確かめる．
++ * タグは後から別のイメージを指すように変えられるので，検証したものと違うイメージをデプロイしうる．
++ */
++export function requireDigest(image: string): string {
++  if (!/@sha256:[0-9a-f]{64}$/.test(image)) {
++    throw new Error(
++      `${image}: イメージはダイジェスト(<イメージ>@sha256:...)で指定する`,
++    );
++  }
++  return image;
++}
++
+ /** サービスのAPIのイメージを image に替え，新しいタスク定義のARNを返す． */
+ export function deploy(image: string): string {
+   const cluster = tofuOutput("ecs_cluster");
+@@ -75,12 +89,14 @@ if (import.meta.main) {
+     if (!values.image) {
+       throw new Error("--image でイメージを指定する");
+     }
+-    const arn = deploy(values.image);
++    const arn = deploy(requireDigest(values.image));
+     writeFileSync(
+       join(evidenceDir("deploy"), "result.json"),
+       `${JSON.stringify({ image: values.image, taskDefinition: arn }, null, 2)}\n`,
+     );
+-    opsLog("deploy", true, `${values.image} → ${arn}`);
++    // 誰の操作かを残す．GitHub Actionsでは，ワークフローを動かした人である．
++    const actor = process.env.GITHUB_ACTOR ?? userInfo().username;
++    opsLog("deploy", true, `${values.image} → ${arn} (by ${actor})`);
+   } catch (e) {
+     opsLog("deploy", false, String(e));
+     process.exit(1);

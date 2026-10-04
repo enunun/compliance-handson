@@ -1,12 +1,18 @@
 {
 	"config": {
-		"default": true
+		"default": true,
+		// 表とコードブロックは折り返せないので，行の長さの検査から外す．
+		"MD013": { "tables": false, "code_blocks": false },
+		// Goのコードはタブで字下げするので，コードブロックのタブは許す．
+		"MD010": { "code_blocks": false }
 	},
 	"globs": [
 		"**/*.md"
 	],
 	"ignores": [
 		"**/node_modules/**",
+		"**/.terraform/**",
+		"app/**",
 		"CLAUDE.md",
 		"**/.claude/**"
 	]

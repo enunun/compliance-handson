@@ -1,0 +1,1023 @@
+diff --git a/.devcontainer/compose.yml b/.devcontainer/compose.yml
+index f3d4990..bfd475b 100644
+--- a/.devcontainer/compose.yml
++++ b/.devcontainer/compose.yml
+@@ -38,5 +38,33 @@ services:
+           # S3 Controlは，アカウントIDを付けたホスト名で接続する．
+           - 000000000000.ministack
+ 
++  # 監視．設定は app/ops/monitoring/ にある．
++  prometheus:
++    image: prom/prometheus:v3.5.5@sha256:332c2f43e7e389d74d3893b55bb02fbbd684208e681eeb604641d5d769c0fe2a
++    container_name: compliance-handson-prometheus
++    command: ["--config.file=/etc/prometheus/prometheus.yml"]
++    volumes:
++      - ../app/ops/monitoring:/etc/prometheus:ro
++
++  alertmanager:
++    image: prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
++    container_name: compliance-handson-alertmanager
++    command: ["--config.file=/etc/alertmanager/alertmanager.yml"]
++    volumes:
++      - ../app/ops/monitoring:/etc/alertmanager:ro
++
++  grafana:
++    image: grafana/grafana:12.2.0@sha256:74144189b38447facf737dfd0f3906e42e0776212bf575dc3334c3609183adf7
++    container_name: compliance-handson-grafana
++    environment:
++      # Web画面(3000)と重ならないようにする．
++      GF_SERVER_HTTP_PORT: "3001"
++      GF_AUTH_ANONYMOUS_ENABLED: "true"
++      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
++    volumes:
++      - ../app/ops/monitoring/grafana/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
++      - ../app/ops/monitoring/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
++      - ../app/ops/monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
++
+ volumes:
+   ministack-data:
+diff --git a/.devcontainer/devcontainer.json b/.devcontainer/devcontainer.json
+index 7babc5a..78a8a16 100644
+--- a/.devcontainer/devcontainer.json
++++ b/.devcontainer/devcontainer.json
+@@ -28,6 +28,8 @@
+ 			]
+ 		}
+ 	},
++	// Web画面，Grafana，API，Prometheus，Alertmanager
++	"forwardPorts": [3000, 8080, "grafana:3001", "prometheus:9090", "alertmanager:9093"],
+ 	"postCreateCommand": "mise run setup",
+ 	"initializeCommand": "mkdir -p \"${localWorkspaceFolder}/.devcontainer/claude-home/.claude\" \"${localWorkspaceFolder}/.devcontainer/rtk-home/.config/rtk\" \"${localWorkspaceFolder}/.devcontainer/rtk-home/.local/share/rtk\"",
+ 	"mounts": [
+diff --git a/app/apps/api/go.mod b/app/apps/api/go.mod
+index 8ebba5d..8de986f 100644
+--- a/app/apps/api/go.mod
++++ b/app/apps/api/go.mod
+@@ -5,13 +5,22 @@ go 1.26.8
+ require (
+ 	github.com/golang-jwt/jwt/v4 v4.5.1
+ 	github.com/jackc/pgx/v5 v5.11.0
++	github.com/prometheus/client_golang v1.24.1
+ 	golang.org/x/crypto v0.57.0
+ )
+ 
+ require (
++	github.com/beorn7/perks v1.0.1 // indirect
++	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+ 	github.com/jackc/pgpassfile v1.0.0 // indirect
+ 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+ 	github.com/jackc/puddle/v2 v2.2.2 // indirect
++	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
++	github.com/prometheus/client_model v0.6.2 // indirect
++	github.com/prometheus/common v0.70.1 // indirect
++	github.com/prometheus/procfs v0.21.1 // indirect
+ 	golang.org/x/sync v0.23.0 // indirect
++	golang.org/x/sys v0.48.0 // indirect
+ 	golang.org/x/text v0.42.0 // indirect
++	google.golang.org/protobuf v1.36.11 // indirect
+ )
+diff --git a/app/apps/api/go.sum b/app/apps/api/go.sum
+index 30f6f7a..50edfb3 100644
+--- a/app/apps/api/go.sum
++++ b/app/apps/api/go.sum
+@@ -1,8 +1,14 @@
++github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
++github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
++github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
++github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
+ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+ github.com/golang-jwt/jwt/v4 v4.5.1 h1:JdqV9zKUdtaa9gdPlywC3aeoEsR681PlKC+4F5gQgeo=
+ github.com/golang-jwt/jwt/v4 v4.5.1/go.mod h1:m21LjoU+eqJr34lmDMbreY2eSTRJ1cv77w39/MY0Ch0=
++github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
++github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
+ github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
+ github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
+ github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
+@@ -11,19 +17,41 @@ github.com/jackc/pgx/v5 v5.11.0 h1:IzBBtyK9AHqf98cctWFifYSci2hgQR/cd56wB4p+ogg=
+ github.com/jackc/pgx/v5 v5.11.0/go.mod h1:mal1tBGAFfLHvZzaYh77YS/eC6IX9OWbRV1QIIM0Jn4=
+ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
+ github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
++github.com/klauspost/compress v1.19.1 h1:VsB4HPswih7mmZ8WleSFQ75c/Ui1M4trX5oAsJnhSlk=
++github.com/klauspost/compress v1.19.1/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
++github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
++github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
++github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
++github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
+ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+ github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
++github.com/prometheus/client_golang v1.24.1 h1:JnJkREXzWxUdCuPFpIWZiPispT9xVV59uiuyR2bPlnU=
++github.com/prometheus/client_golang v1.24.1/go.mod h1:F+oSRECHg4sse5ucfYpYDeIv/hu68Zo0uoHKetWnzcE=
++github.com/prometheus/client_model v0.6.2 h1:oBsgwpGs7iVziMvrGhE53c/GrLUsZdHnqNwqPLxwZyk=
++github.com/prometheus/client_model v0.6.2/go.mod h1:y3m2F6Gdpfy6Ut/GBsUqTWZqCUvMVzSfMLjcu6wAwpE=
++github.com/prometheus/common v0.70.1 h1:1HvjP4D5oL3t8RsPlwxA9onvvStjtIHYE5XuuwOi/PY=
++github.com/prometheus/common v0.70.1/go.mod h1:VdFUQDMZK3VLkurFUVhia6uys/0suUp86TJz5qbJRhc=
++github.com/prometheus/procfs v0.21.1 h1:GljZCt+zSTS+NZq88cyQ1LjZ+RCHp3uVuabBWA5+OJI=
++github.com/prometheus/procfs v0.21.1/go.mod h1:aB55Cww9pdSJVHk0hUf0inxWyyjPogFIjmHKYgMKmtY=
+ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
+ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
+ github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
+ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
+ github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
++go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
++go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
++go.yaml.in/yaml/v2 v2.4.4 h1:tuyd0P+2Ont/d6e2rl3be67goVK4R6deVxCUX5vyPaQ=
++go.yaml.in/yaml/v2 v2.4.4/go.mod h1:gMZqIpDtDqOfM0uNfy0SkpRhvUryYH0Z6wdMYcacYXQ=
+ golang.org/x/crypto v0.57.0 h1:3ZVCjf8Ggz7zneR/EHRVx68Ctf+2pmIMP2UFhh9cC6M=
+ golang.org/x/crypto v0.57.0/go.mod h1:Fdz0i5U6CoizGwLda9DttjSk6qlZo25zYNtR+ycvuZA=
+ golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
+ golang.org/x/sync v0.23.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
++golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
++golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
+ golang.org/x/text v0.42.0 h1:JbOZXgfeCPU9gacVtYliJqOhD+zhrEqK4LfdpmlUZqI=
+ golang.org/x/text v0.42.0/go.mod h1:ojzP1Z+2QtioaF8DTtO8K5q7JWVVYwZKenzujK0Zd0E=
++google.golang.org/protobuf v1.36.11 h1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=
++google.golang.org/protobuf v1.36.11/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
+ gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+ gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+ gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+diff --git a/app/apps/api/internal/server/metrics.go b/app/apps/api/internal/server/metrics.go
+new file mode 100644
+index 0000000..9c411bb
+--- /dev/null
++++ b/app/apps/api/internal/server/metrics.go
+@@ -0,0 +1,61 @@
++package server
++
++import (
++	"net/http"
++	"strconv"
++	"time"
++
++	"github.com/prometheus/client_golang/prometheus"
++	"github.com/prometheus/client_golang/prometheus/promhttp"
++)
++
++// metrics は，APIのリクエストの数と処理の時間を数える．
++type metrics struct {
++	requests *prometheus.CounterVec
++	duration *prometheus.HistogramVec
++	registry *prometheus.Registry
++}
++
++func newMetrics() *metrics {
++	m := &metrics{
++		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
++			Name: "http_requests_total",
++			Help: "処理したHTTPのリクエストの数",
++		}, []string{"route", "code"}),
++		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
++			Name:    "http_request_duration_seconds",
++			Help:    "HTTPのリクエストの処理にかかった時間",
++			Buckets: prometheus.DefBuckets,
++		}, []string{"route"}),
++		registry: prometheus.NewRegistry(),
++	}
++	m.registry.MustRegister(m.requests, m.duration)
++	return m
++}
++
++// handler は，/metrics で数えた値を返すハンドラである．
++func (m *metrics) handler() http.Handler {
++	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
++}
++
++// statusRecorder は，ハンドラが返したステータスコードを覚える．
++type statusRecorder struct {
++	http.ResponseWriter
++	code int
++}
++
++func (r *statusRecorder) WriteHeader(code int) {
++	r.code = code
++	r.ResponseWriter.WriteHeader(code)
++}
++
++// instrument は，ハンドラのリクエストを route の名前で数える．
++func (m *metrics) instrument(route string, next http.Handler) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		start := time.Now()
++		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
++		next.ServeHTTP(rec, r)
++		m.requests.WithLabelValues(route, strconv.Itoa(rec.code)).Inc()
++		m.duration.WithLabelValues(route).Observe(time.Since(start).Seconds())
++	})
++}
+diff --git a/app/apps/api/internal/server/server.go b/app/apps/api/internal/server/server.go
+index d962241..a22b679 100644
+--- a/app/apps/api/internal/server/server.go
++++ b/app/apps/api/internal/server/server.go
+@@ -26,13 +26,18 @@ type ctxKey struct{}
+ // New はAPIのハンドラを返す．
+ func New(s store.Store) http.Handler {
+ 	mux := http.NewServeMux()
++	m := newMetrics()
++	handle := func(pattern string, h http.Handler) {
++		mux.Handle(pattern, m.instrument(pattern, h))
++	}
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+ 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+ 	})
+-	mux.HandleFunc("POST /api/login", login(s))
+-	mux.Handle("GET /api/notes", authenticated(s, listNotes(s)))
+-	mux.Handle("POST /api/notes", authenticated(s, createNote(s)))
+-	mux.Handle("PUT /api/users/{id}/role", authenticated(s, adminOnly(setRole(s))))
++	mux.Handle("GET /metrics", m.handler())
++	handle("POST /api/login", login(s))
++	handle("GET /api/notes", authenticated(s, listNotes(s)))
++	handle("POST /api/notes", authenticated(s, createNote(s)))
++	handle("PUT /api/users/{id}/role", authenticated(s, adminOnly(setRole(s))))
+ 	return mux
+ }
+ 
+diff --git a/app/apps/api/internal/server/server_test.go b/app/apps/api/internal/server/server_test.go
+index e0ebf9e..6d9544f 100644
+--- a/app/apps/api/internal/server/server_test.go
++++ b/app/apps/api/internal/server/server_test.go
+@@ -222,3 +222,13 @@ func TestSearchOwnNotes(t *testing.T) {
+ 		t.Fatalf("notes = %+v", notes)
+ 	}
+ }
++
++func TestMetricsCountRequestsByRouteAndCode(t *testing.T) {
++	h := server.New(newMemStore(t))
++	do(t, h, "GET", "/api/notes", "", "")
++	rec := do(t, h, "GET", "/metrics", "", "")
++	want := `http_requests_total{code="401",route="GET /api/notes"} 1`
++	if !strings.Contains(rec.Body.String(), want) {
++		t.Fatalf("metrics does not contain %q:\n%s", want, rec.Body)
++	}
++}
+diff --git a/app/mise.toml b/app/mise.toml
+index d47c9d2..af0c951 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -104,13 +104,23 @@ description = "SBOMの依存関係のライセンスが，許可したものか
+ depends = ["sbom"]
+ run = 'pnpm exec tsx tools/gates/license.ts "${EVIDENCE_DIR:-out/evidence}"/sbom/*.cdx.json'
+ 
++[tasks."test:alerts"]
++description = "監視の設定を検査し，アラートのルールと通知先の振り分けをテストする"
++run = [
++  "promtool check config ops/monitoring/prometheus.yml",
++  "promtool test rules tests/ops/alert-rules.test.yml",
++  "amtool check-config ops/monitoring/alertmanager.yml",
++  "amtool config routes test --config.file ops/monitoring/alertmanager.yml --verify.receivers on-call severity=page",
++  "amtool config routes test --config.file ops/monitoring/alertmanager.yml --verify.receivers team-chat severity=ticket",
++]
++
+ [tasks."ops:verify"]
+ description = "基準値と運用項目を検証し，仕組みとワークフローを突き合わせる"
+ depends = ["install"]
+ run = "pnpm exec tsx tools/ops/verify.ts"
+ 
+ [tasks."ops:render"]
+-description = "items.yaml から運用項目一覧(ops/items.md)を作る"
++description = "運用項目一覧(ops/items.md)とアラートのルール(ops/monitoring/rules.yml)を作る"
+ depends = ["install"]
+ run = "pnpm exec tsx tools/ops/render.ts"
+ 
+@@ -125,7 +135,7 @@ echo "wrote out/evidence/change/branch-protection-$(date +%Y%m%d).json"
+ 
+ [tasks."check:code"]
+ description = "コードと運用項目を検査する(CIのcheckジョブ)"
+-depends = ["lint", "test", "test:gates", "ops:verify"]
++depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+diff --git a/app/ops/items.md b/app/ops/items.md
+index ace28e7..cd754fb 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -16,3 +16,4 @@
+ | iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | ci.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
+ | actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | artifact-signing | 成果物の署名とprovenance | 基盤運用 | SLSA:Build-L2<br>SSDF:PS.2 | release.yml: release | 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON) | 定常(リリースごと) | 自動 | [手順書](runbooks/verify-image.md) |
++| service-monitoring | APIの監視 | 基盤運用 | ISO27001:A.8.16<br>SOC2:CC7.2 | alert: ApiHighErrorRate | アラートのルールとそのテストの結果，Alertmanagerの通知の記録 | 定常(常時) | 自動 | [手順書](runbooks/api-high-error-rate.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index b753f92..d3f6100 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -139,3 +139,14 @@ items:
+     timing: 定常(リリースごと)
+     actor: 自動
+     runbook: runbooks/verify-image.md
++
++  - id: service-monitoring
++    title: APIの監視
++    category: 基盤運用
++    requirements: [ISO27001:A.8.16, SOC2:CC7.2]
++    mechanisms:
++      - alert: ApiHighErrorRate
++    evidence: アラートのルールとそのテストの結果，Alertmanagerの通知の記録
++    timing: 定常(常時)
++    actor: 自動
++    runbook: runbooks/api-high-error-rate.md
+diff --git a/app/ops/monitoring/alertmanager.yml b/app/ops/monitoring/alertmanager.yml
+new file mode 100644
+index 0000000..b0dc180
+--- /dev/null
++++ b/app/ops/monitoring/alertmanager.yml
+@@ -0,0 +1,17 @@
++# Alertmanagerの設定．アラートの重大度(severity)で通知先を分ける．
++# 通知先のURLは例である．本番では，チャットやオンコールの道具の受け口に替える．
++route:
++  receiver: team-chat
++  group_by: [alertname]
++  routes:
++    # すぐに対応が要るアラートは，オンコールの担当者に知らせる．
++    - matchers: ['severity="page"']
++      receiver: on-call
++
++receivers:
++  - name: team-chat
++    webhook_configs:
++      - url: http://localhost:9099/team-chat
++  - name: on-call
++    webhook_configs:
++      - url: http://localhost:9099/on-call
+diff --git a/app/ops/monitoring/grafana/dashboards.yml b/app/ops/monitoring/grafana/dashboards.yml
+new file mode 100644
+index 0000000..8260fd4
+--- /dev/null
++++ b/app/ops/monitoring/grafana/dashboards.yml
+@@ -0,0 +1,6 @@
++apiVersion: 1
++providers:
++  - name: app
++    type: file
++    options:
++      path: /etc/grafana/dashboards
+diff --git a/app/ops/monitoring/grafana/dashboards/api.json b/app/ops/monitoring/grafana/dashboards/api.json
+new file mode 100644
+index 0000000..e90df04
+--- /dev/null
++++ b/app/ops/monitoring/grafana/dashboards/api.json
+@@ -0,0 +1,100 @@
++{
++  "uid": "api",
++  "title": "API",
++  "schemaVersion": 41,
++  "time": {
++    "from": "now-1h",
++    "to": "now"
++  },
++  "refresh": "30s",
++  "panels": [
++    {
++      "id": 1,
++      "type": "timeseries",
++      "title": "リクエストの数(ステータスコードごと)",
++      "datasource": {
++        "type": "prometheus",
++        "uid": "prometheus"
++      },
++      "gridPos": {
++        "x": 0,
++        "y": 0,
++        "w": 12,
++        "h": 8
++      },
++      "targets": [
++        {
++          "refId": "A",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "expr": "sum by (code) (rate(http_requests_total[5m]))",
++          "legendFormat": "{{code}}"
++        }
++      ]
++    },
++    {
++      "id": 2,
++      "type": "timeseries",
++      "title": "エラー(5xx)の割合",
++      "datasource": {
++        "type": "prometheus",
++        "uid": "prometheus"
++      },
++      "gridPos": {
++        "x": 12,
++        "y": 0,
++        "w": 12,
++        "h": 8
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "percentunit"
++        }
++      },
++      "targets": [
++        {
++          "refId": "A",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "expr": "sum(rate(http_requests_total{code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
++          "legendFormat": "5xx"
++        }
++      ]
++    },
++    {
++      "id": 3,
++      "type": "timeseries",
++      "title": "処理の時間(95パーセンタイル)",
++      "datasource": {
++        "type": "prometheus",
++        "uid": "prometheus"
++      },
++      "gridPos": {
++        "x": 0,
++        "y": 8,
++        "w": 12,
++        "h": 8
++      },
++      "fieldConfig": {
++        "defaults": {
++          "unit": "s"
++        }
++      },
++      "targets": [
++        {
++          "refId": "A",
++          "datasource": {
++            "type": "prometheus",
++            "uid": "prometheus"
++          },
++          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(http_request_duration_seconds_bucket[5m])))",
++          "legendFormat": "{{route}}"
++        }
++      ]
++    }
++  ]
++}
+diff --git a/app/ops/monitoring/grafana/datasources.yml b/app/ops/monitoring/grafana/datasources.yml
+new file mode 100644
+index 0000000..f628bd7
+--- /dev/null
++++ b/app/ops/monitoring/grafana/datasources.yml
+@@ -0,0 +1,7 @@
++apiVersion: 1
++datasources:
++  - name: Prometheus
++    uid: prometheus
++    type: prometheus
++    url: http://prometheus:9090
++    isDefault: true
+diff --git a/app/ops/monitoring/prometheus.yml b/app/ops/monitoring/prometheus.yml
+new file mode 100644
+index 0000000..79047f9
+--- /dev/null
++++ b/app/ops/monitoring/prometheus.yml
+@@ -0,0 +1,18 @@
++# Prometheusの設定．Dev Containerでは，このディレクトリを /etc/prometheus に置いて使う．
++global:
++  scrape_interval: 15s
++  evaluation_interval: 15s
++
++rule_files:
++  - rules.yml
++
++alerting:
++  alertmanagers:
++    - static_configs:
++        - targets: ["alertmanager:9093"]
++
++scrape_configs:
++  # mise run dev:api で動かすAPI(Dev Containerの app のコンテナ)
++  - job_name: api
++    static_configs:
++      - targets: ["app:8080"]
+diff --git a/app/ops/monitoring/rules.yml b/app/ops/monitoring/rules.yml
+new file mode 100644
+index 0000000..4c31b42
+--- /dev/null
++++ b/app/ops/monitoring/rules.yml
+@@ -0,0 +1,12 @@
++# このファイルは mise run ops:render で standards.yaml から生成する．手で編集しない．
++groups:
++  - name: api
++    rules:
++      - alert: ApiHighErrorRate
++        expr: sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.05
++        for: 5m
++        labels:
++          severity: page
++        annotations:
++          summary: APIのエラーの割合が5%を超えている
++          runbook: ops/runbooks/api-high-error-rate.md
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index 2418887..2eed60b 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -22,6 +22,8 @@ mainに入るには，standards.yaml の `change.required_approvals` 人の承
+ | 事象 | 最初に知らせる相手 | 手段 |
+ | --- | --- | --- |
+ | シークレットの漏洩 | セキュリティ責任者 | チャットの #security と電話 |
++| すぐに対応が要るアラート(`severity: page`) | オンコールの担当者 | Alertmanagerの `on-call` の通知先 |
++| それ以外のアラート | 開発チーム | Alertmanagerの `team-chat` の通知先 |
+ 
+ ## 証跡の保管
+ 
+diff --git a/app/ops/runbooks/api-high-error-rate.md b/app/ops/runbooks/api-high-error-rate.md
+new file mode 100644
+index 0000000..c9cf7c9
+--- /dev/null
++++ b/app/ops/runbooks/api-high-error-rate.md
+@@ -0,0 +1,20 @@
++# APIのエラーの割合が高い(ApiHighErrorRate)
++
++APIが返す5xxの割合が，standards.yaml の `monitoring.error_rate_threshold` を超えた状態が続いたときのアラート．
++利用者の操作が失敗しているので，すぐに対応する．
++
++## 実施する人
++
++オンコールの担当者．30分で収まらなければ，開発チームの全員を呼ぶ．
++
++## 手順
++
++1. Grafanaの「API」のダッシュボードで，どのルートとステータスコードでエラーが増えたかを確かめる．
++2. 直前のデプロイや設定の変更を確かめる．変更が原因なら，前の版に戻す．
++3. データベースなどの依存先が動いているかを確かめる．
++4. 原因が分からなければ，APIのログでエラーの内容を確かめる．
++5. 収まったら，アラートが止んだことをAlertmanagerで確かめる．
++
++## 記録
++
++対応を始めた時刻，原因，取った手段，収まった時刻をIssueに書く．
+diff --git a/app/ops/schema/items.schema.json b/app/ops/schema/items.schema.json
+index 230fc54..d253047 100644
+--- a/app/ops/schema/items.schema.json
++++ b/app/ops/schema/items.schema.json
+@@ -3,11 +3,15 @@
+   "title": "運用項目",
+   "type": "object",
+   "additionalProperties": false,
+-  "required": ["items"],
++  "required": [
++    "items"
++  ],
+   "properties": {
+     "items": {
+       "type": "array",
+-      "items": { "$ref": "#/$defs/item" }
++      "items": {
++        "$ref": "#/$defs/item"
++      }
+     }
+   },
+   "$defs": {
+@@ -30,22 +34,33 @@
+           "type": "string",
+           "pattern": "^[a-z][a-z0-9-]*$"
+         },
+-        "title": { "type": "string", "minLength": 1 },
++        "title": {
++          "type": "string",
++          "minLength": 1
++        },
+         "category": {
+           "description": "『運用設計の教科書』の3分類",
+-          "enum": ["業務運用", "基盤運用", "運用管理"]
++          "enum": [
++            "業務運用",
++            "基盤運用",
++            "運用管理"
++          ]
+         },
+         "requirements": {
+           "description": "根拠になる規格の要求(例：SOC2:CC8.1)",
+           "type": "array",
+           "minItems": 1,
+-          "items": { "type": "string" }
++          "items": {
++            "type": "string"
++          }
+         },
+         "mechanisms": {
+           "description": "要求を満たす仕組み",
+           "type": "array",
+           "minItems": 1,
+-          "items": { "$ref": "#/$defs/mechanism" }
++          "items": {
++            "$ref": "#/$defs/mechanism"
++          }
+         },
+         "evidence": {
+           "description": "仕組みが動いたことを示す記録",
+@@ -57,7 +72,12 @@
+           "type": "string",
+           "minLength": 1
+         },
+-        "actor": { "enum": ["自動", "人"] },
++        "actor": {
++          "enum": [
++            "自動",
++            "人"
++          ]
++        },
+         "runbook": {
+           "description": "手順書のパス(ops/からの相対)",
+           "type": "string"
+@@ -65,16 +85,39 @@
+       }
+     },
+     "mechanism": {
+-      "type": "object",
+-      "additionalProperties": false,
+-      "required": ["workflow", "job"],
+-      "properties": {
+-        "workflow": {
+-          "description": ".github/workflows/のファイル名",
+-          "type": "string"
++      "oneOf": [
++        {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "workflow",
++            "job"
++          ],
++          "properties": {
++            "workflow": {
++              "description": ".github/workflows/のファイル名",
++              "type": "string"
++            },
++            "job": {
++              "description": "ワークフローのジョブ名",
++              "type": "string"
++            }
++          }
+         },
+-        "job": { "description": "ワークフローのジョブ名", "type": "string" }
+-      }
++        {
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "alert"
++          ],
++          "properties": {
++            "alert": {
++              "description": "ops/monitoring/rules.yml のアラートの名前",
++              "type": "string"
++            }
++          }
++        }
++      ]
+     }
+   }
+ }
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+index a30c79a..745d3de 100644
+--- a/app/ops/schema/standards.schema.json
++++ b/app/ops/schema/standards.schema.json
+@@ -85,6 +85,28 @@
+           "minimum": 1
+         }
+       }
++    },
++    "monitoring": {
++      "description": "監視の基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "error_rate_threshold",
++        "error_rate_for"
++      ],
++      "properties": {
++        "error_rate_threshold": {
++          "description": "APIのエラー(5xx)の割合がこれを超えたら知らせる",
++          "type": "number",
++          "exclusiveMinimum": 0,
++          "maximum": 1
++        },
++        "error_rate_for": {
++          "description": "しきい値を超えた状態がこの時間続いたら知らせる(Prometheusの時間の書き方)",
++          "type": "string",
++          "pattern": "^[0-9]+[smh]$"
++        }
++      }
+     }
+   },
+   "required": [
+@@ -92,6 +114,7 @@
+     "vulnerability",
+     "exception",
+     "license",
+-    "evidence"
++    "evidence",
++    "monitoring"
+   ]
+ }
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+index ff5d97e..30156bd 100644
+--- a/app/ops/standards.yaml
++++ b/app/ops/standards.yaml
+@@ -25,3 +25,8 @@ license:
+ evidence:
+   # 証跡を消せない状態で保管する日数．監査の対象期間(1年)に余裕を持たせる．
+   retention_days: 400
++
++monitoring:
++  # APIのエラー(5xx)の割合がこれを超えた状態が error_rate_for の間続いたら，担当者に知らせる．
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+index 698ef8c..95d10d7 100644
+--- a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -8,3 +8,6 @@ license:
+   allowed: [MIT]
+ evidence:
+   retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+index ee5484d..eb5d13b 100644
+--- a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -8,3 +8,6 @@ license:
+   allowed: [MIT]
+ evidence:
+   retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+index ee5484d..eb5d13b 100644
+--- a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -8,3 +8,6 @@ license:
+   allowed: [MIT]
+ evidence:
+   retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+index ee5484d..eb5d13b 100644
+--- a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -8,3 +8,6 @@ license:
+   allowed: [MIT]
+ evidence:
+   retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
+diff --git a/app/tests/ops/alert-rules.test.yml b/app/tests/ops/alert-rules.test.yml
+new file mode 100644
+index 0000000..f9ad055
+--- /dev/null
++++ b/app/tests/ops/alert-rules.test.yml
+@@ -0,0 +1,58 @@
++# アラートのルールのテスト．mise run test:alerts で promtool が実行する．
++rule_files:
++  - ../../ops/monitoring/rules.yml
++
++evaluation_interval: 1m
++
++tests:
++  # エラーの割合が10%(1分に200件のうち20件)なら，5分続いた後で知らせる．
++  - interval: 1m
++    input_series:
++      - series: 'http_requests_total{route="GET /api/notes",code="200"}'
++        values: "0+180x30"
++      - series: 'http_requests_total{route="GET /api/notes",code="500"}'
++        values: "0+20x30"
++    alert_rule_test:
++      - eval_time: 3m
++        alertname: ApiHighErrorRate
++        exp_alerts: []
++      - eval_time: 15m
++        alertname: ApiHighErrorRate
++        exp_alerts:
++          - exp_labels:
++              severity: page
++            exp_annotations:
++              summary: APIのエラーの割合が5%を超えている
++              runbook: ops/runbooks/api-high-error-rate.md
++
++  # エラーの割合が1%なら知らせない．
++  - interval: 1m
++    input_series:
++      - series: 'http_requests_total{route="GET /api/notes",code="200"}'
++        values: "0+198x30"
++      - series: 'http_requests_total{route="GET /api/notes",code="500"}'
++        values: "0+2x30"
++    alert_rule_test:
++      - eval_time: 20m
++        alertname: ApiHighErrorRate
++        exp_alerts: []
++
++  # エラーが止まれば，知らせるのをやめる．
++  - interval: 1m
++    input_series:
++      - series: 'http_requests_total{route="GET /api/notes",code="200"}'
++        values: "0+180x40"
++      - series: 'http_requests_total{route="GET /api/notes",code="500"}'
++        values: "0+20x15 300x25"
++    alert_rule_test:
++      - eval_time: 15m
++        alertname: ApiHighErrorRate
++        exp_alerts:
++          - exp_labels:
++              severity: page
++            exp_annotations:
++              summary: APIのエラーの割合が5%を超えている
++              runbook: ops/runbooks/api-high-error-rate.md
++      - eval_time: 30m
++        alertname: ApiHighErrorRate
++        exp_alerts: []
+diff --git a/app/tools/ops/alerts.ts b/app/tools/ops/alerts.ts
+new file mode 100644
+index 0000000..2c020be
+--- /dev/null
++++ b/app/tools/ops/alerts.ts
+@@ -0,0 +1,33 @@
++import type { Standards } from "./standards.ts";
++
++/** アラートのルール(ops/monitoring/rules.yml)の場所． */
++export function alertRulesPath(opsDir: string): string {
++  return `${opsDir}/monitoring/rules.yml`;
++}
++
++/**
++ * Prometheusのアラートのルールを作る．しきい値は基準値から取る．
++ * 生成したファイルは ops:verify で基準値と照らし合わせる．
++ */
++export function alertRules(standards: Standards) {
++  const { error_rate_threshold, error_rate_for } = standards.monitoring;
++  return {
++    groups: [
++      {
++        name: "api",
++        rules: [
++          {
++            alert: "ApiHighErrorRate",
++            expr: `sum(rate(http_requests_total{code=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > ${error_rate_threshold}`,
++            for: error_rate_for,
++            labels: { severity: "page" },
++            annotations: {
++              summary: `APIのエラーの割合が${error_rate_threshold * 100}%を超えている`,
++              runbook: "ops/runbooks/api-high-error-rate.md",
++            },
++          },
++        ],
++      },
++    ],
++  };
++}
+diff --git a/app/tools/ops/items.ts b/app/tools/ops/items.ts
+index 9943e03..d9232b3 100644
+--- a/app/tools/ops/items.ts
++++ b/app/tools/ops/items.ts
+@@ -1,8 +1,8 @@
+ import { readFileSync } from "node:fs";
+ import { parse } from "yaml";
+ 
+-/** ワークフローのジョブとしての仕組み． */
+-export type Mechanism = { workflow: string; job: string };
++/** 仕組み．ワークフローのジョブか，アラートのルールである． */
++export type Mechanism = { workflow: string; job: string } | { alert: string };
+ 
+ /** 運用項目．ops/schema/items.schema.json の形に合う． */
+ export type Item = {
+diff --git a/app/tools/ops/render.ts b/app/tools/ops/render.ts
+index 50f9649..0aa8546 100644
+--- a/app/tools/ops/render.ts
++++ b/app/tools/ops/render.ts
+@@ -1,6 +1,9 @@
+ import { writeFileSync } from "node:fs";
+ import { join } from "node:path";
+-import { type ItemsFile, readYaml } from "./items.ts";
++import { stringify } from "yaml";
++import { alertRules, alertRulesPath } from "./alerts.ts";
++import { type ItemsFile, type Mechanism, readYaml } from "./items.ts";
++import { readStandards, type Standards } from "./standards.ts";
+ 
+ const header = `<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
+ 
+@@ -15,7 +18,7 @@ export function render({ items }: ItemsFile): string {
+       item.title,
+       item.category,
+       item.requirements.join("<br>"),
+-      item.mechanisms.map((m) => `${m.workflow}: ${m.job}`).join("<br>"),
++      item.mechanisms.map(describeMechanism).join("<br>"),
+       item.evidence,
+       item.timing,
+       item.actor,
+@@ -31,6 +34,15 @@ export function render({ items }: ItemsFile): string {
+   ].join("\n");
+ }
+ 
++function describeMechanism(m: Mechanism): string {
++  return "alert" in m ? `alert: ${m.alert}` : `${m.workflow}: ${m.job}`;
++}
++
++/** アラートのルールのYAMLを作る． */
++export function renderAlertRules(standards: Standards): string {
++  return `# このファイルは mise run ops:render で standards.yaml から生成する．手で編集しない．\n${stringify(alertRules(standards), { lineWidth: 0 })}`;
++}
++
+ /** 一覧のファイルの場所． */
+ export function renderedPath(opsDir: string): string {
+   return join(opsDir, "items.md");
+@@ -41,4 +53,9 @@ if (import.meta.main) {
+   const items = readYaml(join(opsDir, "items.yaml")) as ItemsFile;
+   writeFileSync(renderedPath(opsDir), render(items));
+   console.log(`wrote ${renderedPath(opsDir)}`);
++  writeFileSync(
++    alertRulesPath(opsDir),
++    renderAlertRules(readStandards(opsDir)),
++  );
++  console.log(`wrote ${alertRulesPath(opsDir)}`);
+ }
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+index 8b9feae..6f23a27 100644
+--- a/app/tools/ops/standards.ts
++++ b/app/tools/ops/standards.ts
+@@ -11,6 +11,7 @@ export type Standards = {
+   exception: { max_days: number };
+   license: { allowed: string[] };
+   evidence: { retention_days: number };
++  monitoring: { error_rate_threshold: number; error_rate_for: string };
+ };
+ 
+ /** 例外．ops/schema/exceptions.schema.json の形に合う． */
+diff --git a/app/tools/ops/verify.ts b/app/tools/ops/verify.ts
+index cf3cf28..775be22 100644
+--- a/app/tools/ops/verify.ts
++++ b/app/tools/ops/verify.ts
+@@ -3,8 +3,10 @@ import { join } from "node:path";
+ import { parseArgs } from "node:util";
+ import { Ajv2020 } from "ajv/dist/2020.js";
+ import addFormats from "ajv-formats";
++import { alertRulesPath } from "./alerts.ts";
+ import { type ItemsFile, readYaml } from "./items.ts";
+-import { render, renderedPath } from "./render.ts";
++import { render, renderAlertRules, renderedPath } from "./render.ts";
++import type { Standards } from "./standards.ts";
+ 
+ /** 検証で見つかった問題． */
+ export type Problem = { file: string; message: string };
+@@ -42,7 +44,7 @@ export function verify(options: VerifyOptions): Problem[] {
+     return data;
+   };
+ 
+-  validate("standards");
++  const standards = validate("standards") as Standards | undefined;
+   if (existsSync(join(options.opsDir, "exceptions.yaml"))) {
+     validate("exceptions");
+   }
+@@ -52,8 +54,24 @@ export function verify(options: VerifyOptions): Problem[] {
+   }
+ 
+   const itemsFile = join(options.opsDir, "items.yaml");
++  const rulesFile = alertRulesPath(options.opsDir);
++  const alerts = existsSync(rulesFile)
++    ? (
++        readYaml(rulesFile) as { groups: { rules: { alert?: string }[] }[] }
++      ).groups.flatMap((g) => g.rules.map((r) => r.alert))
++    : [];
+   for (const item of items.items) {
+-    for (const { workflow, job } of item.mechanisms) {
++    for (const mechanism of item.mechanisms) {
++      if ("alert" in mechanism) {
++        if (!alerts.includes(mechanism.alert)) {
++          problems.push({
++            file: itemsFile,
++            message: `${item.id}: アラート ${mechanism.alert} がない`,
++          });
++        }
++        continue;
++      }
++      const { workflow, job } = mechanism;
+       const path = join(options.workflowsDir, workflow);
+       if (!existsSync(path)) {
+         problems.push({
+@@ -78,6 +96,17 @@ export function verify(options: VerifyOptions): Problem[] {
+     }
+   }
+ 
++  if (
++    standards &&
++    existsSync(rulesFile) &&
++    readFileSync(rulesFile, "utf8") !== renderAlertRules(standards)
++  ) {
++    problems.push({
++      file: rulesFile,
++      message: "standards.yaml と合わない．mise run ops:render で作り直す",
++    });
++  }
++
+   const rendered = renderedPath(options.opsDir);
+   if (
+     !existsSync(rendered) ||

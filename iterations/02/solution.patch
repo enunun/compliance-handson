@@ -1,0 +1,912 @@
+diff --git a/.github/CODEOWNERS b/.github/CODEOWNERS
+index c4fc602..cc7970f 100644
+--- a/.github/CODEOWNERS
++++ b/.github/CODEOWNERS
+@@ -2,4 +2,5 @@
+ # @security-lead は，自分のGitHubのアカウントかチームに置き換える．
+ 
+ /app/ops/standards.yaml @security-lead
++/app/ops/exceptions.yaml @security-lead
+ /.github/CODEOWNERS @security-lead
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 8a8c12d..ad5e4fe 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -36,3 +36,28 @@ jobs:
+         with:
+           name: evidence-secrets
+           path: app/out/evidence/secrets/
++
++  sca:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@v5
++      - uses: jdx/mise-action@v3
++      - run: mise run gate:sca
++      - uses: actions/upload-artifact@v4
++        if: always()
++        with:
++          name: evidence-sca
++          path: app/out/evidence/sca/
++
++  exceptions:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@v5
++      - uses: jdx/mise-action@v3
++      - run: mise run gate:exceptions
+diff --git a/app/apps/web/package.json b/app/apps/web/package.json
+index 986c6aa..dd24b1d 100644
+--- a/app/apps/web/package.json
++++ b/app/apps/web/package.json
+@@ -12,7 +12,7 @@
+     "@app/shared": "workspace:*",
+     "@hono/node-server": "^2.1.3",
+     "hono": "^4.13.12",
+-    "lodash": "4.17.20"
++    "lodash": "4.18.1"
+   },
+   "devDependencies": {
+     "@types/lodash": "^4.17.25",
+diff --git a/app/mise.toml b/app/mise.toml
+index b03274d..a8911e0 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -44,14 +44,24 @@ run = "pnpm test:gates"
+ [tasks."gate:secrets"]
+ description = "gitの履歴全体からシークレットを探す(引数でリポジトリの場所を変えられる)"
+ run = [
+-  "mkdir -p out/evidence/secrets",
+-  "gitleaks git --config ../.gitleaks.toml --redact --report-format json --report-path out/evidence/secrets/gitleaks.json",
++  'mkdir -p "${EVIDENCE_DIR:-out/evidence}/secrets"',
++  'gitleaks git --config ../.gitleaks.toml --redact --report-format json --report-path "${EVIDENCE_DIR:-out/evidence}/secrets/gitleaks.json"',
+ ]
+ 
+ [tasks."gate:secrets:staged"]
+ description = "コミットしようとしている変更からシークレットを探す(引数でリポジトリの場所を変えられる)"
+ run = "gitleaks git --config ../.gitleaks.toml --redact --pre-commit --staged"
+ 
++[tasks."gate:sca"]
++description = "依存関係の既知の脆弱性を検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/sca.ts"
++
++[tasks."gate:exceptions"]
++description = "例外の期限を検査する"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/exceptions.ts"
++
+ [tasks."ops:verify"]
+ description = "基準値と運用項目を検証し，仕組みとワークフローを突き合わせる"
+ depends = ["install"]
+@@ -77,7 +87,7 @@ depends = ["lint", "test", "test:gates", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+diff --git a/app/ops/exceptions.yaml b/app/ops/exceptions.yaml
+new file mode 100644
+index 0000000..b4f58af
+--- /dev/null
++++ b/app/ops/exceptions.yaml
+@@ -0,0 +1,13 @@
++# yaml-language-server: $schema=./schema/exceptions.schema.json
++# 例外．追加と延長には，セキュリティ責任者の承認が要る(.github/CODEOWNERS)．
++# 申請の手順は runbooks/exception-request.md にある．
++
++exceptions:
++  - id: EXC-001
++    target: CVE-2025-30204
++    package: github.com/golang-jwt/jwt/v4
++    reason: >-
++      脆弱なのはトークンを解析する処理(ParseUnverified)で，APIはトークンに署名するだけで解析しない．
++      到達しないことを確かめたので，次の定期更新で4.5.2以上に上げるまで受け入れる．
++    approver: "@security-lead"
++    expires: 2026-12-31
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 402615b..0d07364 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -6,3 +6,5 @@
+ | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+ | change-management | 変更管理 | 運用管理 | SOC2:CC8.1<br>ISO27001:A.8.32 | ci.yml: check | ブランチ保護の設定(JSON)と，プルリクエストのレビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+ | secret-detection | シークレット検出 | 運用管理 | ISO27001:A.5.17<br>ISO27001:A.8.4<br>SSDF:PS.1 | ci.yml: secrets | gitleaksの結果(JSON，キーは伏せ字)をCIのartifactとして保存 | 定常(変更ごと，コミットごと) | 自動 | [手順書](runbooks/secret-leak.md) |
++| dependency-vulnerabilities | 依存関係の脆弱性検査 | 基盤運用 | ISO27001:A.8.8<br>SOC2:CC7.1<br>SSDF:PW.4 | ci.yml: sca | Trivyの結果(JSON)をCIのartifactとして保存 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
++| exception-requests | 例外の申請と期限の管理 | 業務運用 | ISO27001:A.8.8<br>SOC2:CC3.4 | ci.yml: exceptions | exceptions.yaml の変更履歴(セキュリティ責任者が承認したプルリクエスト) | 非定常(申請のとき)と定常(変更ごとに期限を検査) | 人 | [手順書](runbooks/exception-request.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 8aef53b..96138a2 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -25,3 +25,27 @@ items:
+     timing: 定常(変更ごと，コミットごと)
+     actor: 自動
+     runbook: runbooks/secret-leak.md
++
++  - id: dependency-vulnerabilities
++    title: 依存関係の脆弱性検査
++    category: 基盤運用
++    requirements: [ISO27001:A.8.8, SOC2:CC7.1, SSDF:PW.4]
++    mechanisms:
++      - workflow: ci.yml
++        job: sca
++    evidence: Trivyの結果(JSON)をCIのartifactとして保存
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/exception-request.md
++
++  - id: exception-requests
++    title: 例外の申請と期限の管理
++    category: 業務運用
++    requirements: [ISO27001:A.8.8, SOC2:CC3.4]
++    mechanisms:
++      - workflow: ci.yml
++        job: exceptions
++    evidence: exceptions.yaml の変更履歴(セキュリティ責任者が承認したプルリクエスト)
++    timing: 非定常(申請のとき)と定常(変更ごとに期限を検査)
++    actor: 人
++    runbook: runbooks/exception-request.md
+diff --git a/app/ops/runbooks/exception-request.md b/app/ops/runbooks/exception-request.md
+new file mode 100644
+index 0000000..4b93432
+--- /dev/null
++++ b/app/ops/runbooks/exception-request.md
+@@ -0,0 +1,24 @@
++# 例外の申請
++
++ゲートの検出をすぐに直せないときに，期限付きで受け入れるための手順．
++検出を直せるなら，例外にせずに直す．
++
++## 例外にしてよい場合
++
++- 脆弱な処理に到達しないことを確かめた．
++- 直した版がまだ出ていない，または直した版に上げると壊れるので，検証の時間が要る．
++- ゲートの誤検知である．
++
++## 手順
++
++1. 検出の内容(脆弱性の識別子，パッケージ，重大度)を確かめる．
++2. 例外にしてよい理由を確かめる．到達しないことを理由にするなら，呼んでいない関数と，その確かめ方を書く．
++3. `ops/exceptions.yaml`に例外を足すプルリクエストを作る．
++   期限は，直す予定の日にする．基準値の`exception.max_days`を超えてはならない．
++4. セキュリティ責任者が，理由と期限を確かめて承認する(CODEOWNERSで必須になっている)．
++5. 期限が来る前に直すか，理由を確かめ直して期限を延ばす申請をする．
++
++## 証跡
++
++- `ops/exceptions.yaml`の変更履歴と，承認されたプルリクエスト．
++- CIの`exceptions`ジョブの結果．
+diff --git a/app/ops/schema/exceptions.schema.json b/app/ops/schema/exceptions.schema.json
+new file mode 100644
+index 0000000..ece830e
+--- /dev/null
++++ b/app/ops/schema/exceptions.schema.json
+@@ -0,0 +1,51 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "title": "例外",
++  "type": "object",
++  "additionalProperties": false,
++  "required": ["exceptions"],
++  "properties": {
++    "exceptions": {
++      "type": "array",
++      "items": { "$ref": "#/$defs/exception" }
++    }
++  },
++  "$defs": {
++    "exception": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["id", "target", "reason", "approver", "expires"],
++      "properties": {
++        "id": {
++          "description": "例外の識別子(例：EXC-001)",
++          "type": "string",
++          "pattern": "^EXC-[0-9]{3}$"
++        },
++        "target": {
++          "description": "例外にする検出(脆弱性ならCVEなどの識別子)",
++          "type": "string",
++          "minLength": 1
++        },
++        "package": {
++          "description": "対象のパッケージ(分かる場合)",
++          "type": "string"
++        },
++        "reason": {
++          "description": "例外にする理由",
++          "type": "string",
++          "minLength": 1
++        },
++        "approver": {
++          "description": "承認した人(GitHubのアカウント)",
++          "type": "string",
++          "pattern": "^@"
++        },
++        "expires": {
++          "description": "期限(この日を過ぎたら例外は無効)",
++          "type": "string",
++          "format": "date"
++        }
++      }
++    }
++  }
++}
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+index 92c2bb3..d61c555 100644
+--- a/app/ops/schema/standards.schema.json
++++ b/app/ops/schema/standards.schema.json
+@@ -8,7 +8,9 @@
+       "description": "変更管理の基準",
+       "type": "object",
+       "additionalProperties": false,
+-      "required": ["required_approvals"],
++      "required": [
++        "required_approvals"
++      ],
+       "properties": {
+         "required_approvals": {
+           "description": "mainへの変更に要る承認の数",
+@@ -16,7 +18,45 @@
+           "minimum": 1
+         }
+       }
++    },
++    "vulnerability": {
++      "description": "脆弱性の基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "fail_severity"
++      ],
++      "properties": {
++        "fail_severity": {
++          "description": "この重大度以上の脆弱性でゲートを失敗させる",
++          "enum": [
++            "LOW",
++            "MEDIUM",
++            "HIGH",
++            "CRITICAL"
++          ]
++        }
++      }
++    },
++    "exception": {
++      "description": "例外の基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "max_days"
++      ],
++      "properties": {
++        "max_days": {
++          "description": "例外の期限として認める最長の日数",
++          "type": "integer",
++          "minimum": 1
++        }
++      }
+     }
+   },
+-  "required": ["change"]
++  "required": [
++    "change",
++    "vulnerability",
++    "exception"
++  ]
+ }
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+index a02bf0d..f086294 100644
+--- a/app/ops/standards.yaml
++++ b/app/ops/standards.yaml
+@@ -3,3 +3,11 @@
+ 
+ change:
+   required_approvals: 1
++
++vulnerability:
++  # この重大度以上の脆弱性があれば，ゲートを失敗させる．
++  fail_severity: HIGH
++
++exception:
++  # 例外の期限は，承認した日から最長でこの日数までにする．
++  max_days: 90
+diff --git a/app/package.json b/app/package.json
+index 5c6e342..067564a 100644
+--- a/app/package.json
++++ b/app/package.json
+@@ -13,6 +13,7 @@
+     "@biomejs/biome": "^2.5.15",
+     "@types/node": "^26.6.4",
+     "ajv": "^8.20.0",
++    "ajv-formats": "^3.0.1",
+     "tsx": "^4.23.15",
+     "typescript": "^7.0.2",
+     "vitest": "^5.0.3",
+diff --git a/app/pnpm-lock.yaml b/app/pnpm-lock.yaml
+index 66d4a8b..eddc5e2 100644
+--- a/app/pnpm-lock.yaml
++++ b/app/pnpm-lock.yaml
+@@ -17,6 +17,9 @@ importers:
+       ajv:
+         specifier: ^8.20.0
+         version: 8.20.0
++      ajv-formats:
++        specifier: ^3.0.1
++        version: 3.0.1(ajv@8.20.0)
+       tsx:
+         specifier: ^4.23.15
+         version: 4.23.15
+@@ -42,8 +45,8 @@ importers:
+         specifier: ^4.13.12
+         version: 4.13.12
+       lodash:
+-        specifier: 4.17.20
+-        version: 4.17.20
++        specifier: 4.18.1
++        version: 4.18.1
+     devDependencies:
+       '@types/lodash':
+         specifier: ^4.17.25
+@@ -540,6 +543,14 @@ packages:
+   '@vitest/spy@5.0.3':
+     resolution: {integrity: sha512-XhFysQTB8AZ+P4gMi+Lpo99vg2AZi0qKpaB9yXQl37+CaMEAPO3iH/wGVnSyL5MPERiLezpqTVtrR6UZH5GCXg==}
+ 
++  ajv-formats@3.0.1:
++    resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
++    peerDependencies:
++      ajv: ^8.0.0
++    peerDependenciesMeta:
++      ajv:
++        optional: true
++
+   ajv@8.20.0:
+     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
+ 
+@@ -671,8 +682,8 @@ packages:
+     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
+     engines: {node: '>= 12.0.0'}
+ 
+-  lodash@4.17.20:
+-    resolution: {integrity: sha512-PlhdFcillOINfeV7Ni6oF1TAEayyZBoZ8bcshTHqOYJYlrqzRK5hagpagky5o4HfCzzd1TRkXPMFq6cKk9rGmA==}
++  lodash@4.18.1:
++    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
+ 
+   magic-string@1.4.2:
+     resolution: {integrity: sha512-vG+rjFRj1PqdIBozIxAGMjPlOhaVe+GXpbttY/iSK7rGcJRMlwNJO7dcUwmUqkymsFLJiNGI06t4D7Fr7yRC9g==}
+@@ -1098,6 +1109,10 @@ snapshots:
+ 
+   '@vitest/spy@5.0.3': {}
+ 
++  ajv-formats@3.0.1(ajv@8.20.0):
++    optionalDependencies:
++      ajv: 8.20.0
++
+   ajv@8.20.0:
+     dependencies:
+       fast-deep-equal: 3.1.3
+@@ -1212,7 +1227,7 @@ snapshots:
+       lightningcss-win32-arm64-msvc: 1.33.0
+       lightningcss-win32-x64-msvc: 1.33.0
+ 
+-  lodash@4.17.20: {}
++  lodash@4.18.1: {}
+ 
+   magic-string@1.4.2:
+     dependencies:
+diff --git a/app/tests/gates/exceptions.test.ts b/app/tests/gates/exceptions.test.ts
+new file mode 100644
+index 0000000..c9532d4
+--- /dev/null
++++ b/app/tests/gates/exceptions.test.ts
+@@ -0,0 +1,35 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/exceptions/<name>.yaml の例外を，2026-10-04 の時点で検査する． */
++function checkExceptions(name: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/exceptions.ts",
++    "--exceptions",
++    fixture("exceptions", `${name}.yaml`),
++    "--today",
++    "2026-10-04",
++  ]);
++}
++
++describe("gate:exceptions", () => {
++  it("期限内の例外なら通る", () => {
++    const result = checkExceptions("within");
++    expect(result.output).toContain("1 active, 0 expired");
++    expect(result.status).toBe(0);
++  });
++
++  it("期限を過ぎた例外があれば失敗する", () => {
++    const result = checkExceptions("expired");
++    expect(result.output).toContain("EXC-001: 期限(2026-09-30)を過ぎている");
++    expect(result.status).toBe(1);
++  });
++
++  it("期限が基準値の最長の日数を超える例外があれば失敗する", () => {
++    const result = checkExceptions("too-long");
++    expect(result.output).toContain("基準値の90日を超えている");
++    expect(result.status).toBe(1);
++  });
++});
+diff --git a/app/tests/gates/fixtures/exceptions/expired.yaml b/app/tests/gates/fixtures/exceptions/expired.yaml
+new file mode 100644
+index 0000000..97ad61a
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/expired.yaml
+@@ -0,0 +1,6 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-0000-0001
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-09-30
+diff --git a/app/tests/gates/fixtures/exceptions/lodash-expired.yaml b/app/tests/gates/fixtures/exceptions/lodash-expired.yaml
+new file mode 100644
+index 0000000..2bf3710
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/lodash-expired.yaml
+@@ -0,0 +1,11 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-2021-23337
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2020-01-01
++  - id: EXC-002
++    target: CVE-2026-4800
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2020-01-01
+diff --git a/app/tests/gates/fixtures/exceptions/lodash.yaml b/app/tests/gates/fixtures/exceptions/lodash.yaml
+new file mode 100644
+index 0000000..7606fce
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/lodash.yaml
+@@ -0,0 +1,11 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-2021-23337
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2099-12-31
++  - id: EXC-002
++    target: CVE-2026-4800
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2099-12-31
+diff --git a/app/tests/gates/fixtures/exceptions/none.yaml b/app/tests/gates/fixtures/exceptions/none.yaml
+new file mode 100644
+index 0000000..afb6264
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/none.yaml
+@@ -0,0 +1 @@
++exceptions: []
+diff --git a/app/tests/gates/fixtures/exceptions/too-long.yaml b/app/tests/gates/fixtures/exceptions/too-long.yaml
+new file mode 100644
+index 0000000..a3d4270
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/too-long.yaml
+@@ -0,0 +1,6 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-0000-0001
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2027-06-30
+diff --git a/app/tests/gates/fixtures/exceptions/within.yaml b/app/tests/gates/fixtures/exceptions/within.yaml
+new file mode 100644
+index 0000000..ceac620
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/within.yaml
+@@ -0,0 +1,6 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-0000-0001
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-12-31
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+index 04e9f8b..28f109e 100644
+--- a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -1,2 +1,6 @@
+ change:
+   required_approvals: 0
++vulnerability:
++  fail_severity: HIGH
++exception:
++  max_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+index 0064975..7fa849d 100644
+--- a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -1,2 +1,6 @@
+ change:
+   required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++exception:
++  max_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+index 0064975..7fa849d 100644
+--- a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -1,2 +1,6 @@
+ change:
+   required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++exception:
++  max_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+index 0064975..7fa849d 100644
+--- a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -1,2 +1,6 @@
+ change:
+   required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++exception:
++  max_days: 90
+diff --git a/app/tests/gates/fixtures/sca/fixed/package-lock.json b/app/tests/gates/fixtures/sca/fixed/package-lock.json
+new file mode 100644
+index 0000000..7146012
+--- /dev/null
++++ b/app/tests/gates/fixtures/sca/fixed/package-lock.json
+@@ -0,0 +1,9 @@
++{
++  "name": "fixture",
++  "version": "1.0.0",
++  "lockfileVersion": 3,
++  "packages": {
++    "": { "dependencies": { "lodash": "4.18.1" } },
++    "node_modules/lodash": { "version": "4.18.1" }
++  }
++}
+diff --git a/app/tests/gates/fixtures/sca/vulnerable/package-lock.json b/app/tests/gates/fixtures/sca/vulnerable/package-lock.json
+new file mode 100644
+index 0000000..1ec49f2
+--- /dev/null
++++ b/app/tests/gates/fixtures/sca/vulnerable/package-lock.json
+@@ -0,0 +1,9 @@
++{
++  "name": "fixture",
++  "version": "1.0.0",
++  "lockfileVersion": 3,
++  "packages": {
++    "": { "dependencies": { "lodash": "4.17.20" } },
++    "node_modules/lodash": { "version": "4.17.20" }
++  }
++}
+diff --git a/app/tests/gates/helpers.ts b/app/tests/gates/helpers.ts
+index 1f9d93d..c4b7588 100644
+--- a/app/tests/gates/helpers.ts
++++ b/app/tests/gates/helpers.ts
+@@ -1,5 +1,7 @@
+ import { spawnSync } from "node:child_process";
+-import { resolve } from "node:path";
++import { mkdtempSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join, resolve } from "node:path";
+ 
+ /** 題材のディレクトリ(app/)． */
+ export const appRoot = resolve(import.meta.dirname, "../..");
+@@ -9,9 +11,19 @@ export function fixture(...parts: string[]): string {
+   return resolve(import.meta.dirname, "fixtures", ...parts);
+ }
+ 
++/**
++ * ゲートが証跡を書く場所．テストごとに一時的な場所にして，
++ * 本物の証跡(out/evidence/)や，並列に動くほかのゲートと混ざらないようにする．
++ */
++export const evidenceDir = mkdtempSync(join(tmpdir(), "gate-evidence-"));
++
+ /** コマンドを実行し，終了コードと出力を返す． */
+ export function run(command: string, args: string[], cwd = appRoot) {
+-  const result = spawnSync(command, args, { cwd, encoding: "utf8" });
++  const result = spawnSync(command, args, {
++    cwd,
++    encoding: "utf8",
++    env: { ...process.env, EVIDENCE_DIR: evidenceDir },
++  });
+   return {
+     status: result.status,
+     output: `${result.stdout}${result.stderr}`,
+diff --git a/app/tests/gates/sca.test.ts b/app/tests/gates/sca.test.ts
+new file mode 100644
+index 0000000..f65f7a7
+--- /dev/null
++++ b/app/tests/gates/sca.test.ts
+@@ -0,0 +1,39 @@
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { describe, expect, it } from "vitest";
++import { evidenceDir, fixture, run } from "./helpers.ts";
++
++/** fixtures/sca/<target> を，fixtures/exceptions/<exceptions>.yaml の例外で検査する． */
++function sca(target: string, exceptions: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/sca.ts",
++    "--target",
++    fixture("sca", target),
++    "--exceptions",
++    fixture("exceptions", `${exceptions}.yaml`),
++  ]);
++}
++
++describe("gate:sca", () => {
++  it("基準値以上の脆弱性があれば失敗し，証跡のJSONに残す", () => {
++    const result = sca("vulnerable", "none");
++    expect(result.output).toContain("CVE-2021-23337");
++    expect(result.status).toBe(1);
++    const report = readFileSync(join(evidenceDir, "sca/trivy.json"), "utf8");
++    expect(report).toContain("CVE-2021-23337");
++  });
++
++  it("基準値以上の脆弱性がなければ通る", () => {
++    expect(sca("fixed", "none").status).toBe(0);
++  });
++
++  it("例外に載った脆弱性は外す", () => {
++    expect(sca("vulnerable", "lodash").status).toBe(0);
++  });
++
++  it("期限を過ぎた例外では外さない", () => {
++    expect(sca("vulnerable", "lodash-expired").status).toBe(1);
++  });
++});
+diff --git a/app/tests/gates/secrets.test.ts b/app/tests/gates/secrets.test.ts
+index f6e9b7c..37b8741 100644
+--- a/app/tests/gates/secrets.test.ts
++++ b/app/tests/gates/secrets.test.ts
+@@ -2,7 +2,7 @@ import { cpSync, mkdtempSync, readFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { describe, expect, it } from "vitest";
+-import { appRoot, fixture, run } from "./helpers.ts";
++import { evidenceDir, fixture, run } from "./helpers.ts";
+ 
+ const leakedKey = "pk_51c8e3a9f07b2d46e1a5c9f38b7d2e04";
+ 
+@@ -46,7 +46,7 @@ describe("gate:secrets", () => {
+   it("出力と証跡にキーそのものを書かない", () => {
+     const result = run("mise", ["run", "gate:secrets", repoFrom("leaked")]);
+     const report = readFileSync(
+-      join(appRoot, "out/evidence/secrets/gitleaks.json"),
++      join(evidenceDir, "secrets/gitleaks.json"),
+       "utf8",
+     );
+     expect(report).toContain("generic-api-key");
+diff --git a/app/tools/gates/exceptions.ts b/app/tools/gates/exceptions.ts
+new file mode 100644
+index 0000000..ed44509
+--- /dev/null
++++ b/app/tools/gates/exceptions.ts
+@@ -0,0 +1,54 @@
++// 例外の期限を検査する．期限切れの例外と，基準値の最長の日数を超える例外があれば失敗する．
++import { parseArgs } from "node:util";
++import {
++  type Exception,
++  readExceptions,
++  readStandards,
++} from "../ops/standards.ts";
++
++const day = 24 * 60 * 60 * 1000;
++
++/** 例外の期限の問題を返す．today は YYYY-MM-DD である． */
++export function checkExceptions(
++  exceptions: Exception[],
++  maxDays: number,
++  today: string,
++): string[] {
++  const now = Date.parse(today);
++  return exceptions.flatMap((e) => {
++    const days = (Date.parse(e.expires) - now) / day;
++    if (days < 0) {
++      return [`${e.id}: 期限(${e.expires})を過ぎている`];
++    }
++    if (days > maxDays) {
++      return [`${e.id}: 期限(${e.expires})が基準値の${maxDays}日を超えている`];
++    }
++    return [];
++  });
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      ops: { type: "string", default: "ops" },
++      exceptions: { type: "string", default: "ops/exceptions.yaml" },
++      today: {
++        type: "string",
++        default: new Date().toISOString().slice(0, 10),
++      },
++    },
++  });
++  const exceptions = readExceptions(values.exceptions);
++  const problems = checkExceptions(
++    exceptions,
++    readStandards(values.ops).exception.max_days,
++    values.today,
++  );
++  for (const problem of problems) {
++    console.error(problem);
++  }
++  if (problems.length > 0) {
++    process.exit(1);
++  }
++  console.log(`exceptions: ${exceptions.length} active, 0 expired`);
++}
+diff --git a/app/tools/gates/sca.ts b/app/tools/gates/sca.ts
+new file mode 100644
+index 0000000..50fdd56
+--- /dev/null
++++ b/app/tools/gates/sca.ts
+@@ -0,0 +1,77 @@
++// 依存関係の既知の脆弱性を，Trivyで検査する．
++// 基準値の重大度以上の脆弱性があれば失敗する．例外に載った脆弱性は，期限まで外す．
++import { spawnSync } from "node:child_process";
++import { mkdirSync, writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { stringify } from "yaml";
++import {
++  type Exception,
++  readExceptions,
++  readStandards,
++  severitiesFrom,
++} from "../ops/standards.ts";
++
++// 証跡の置き場所．ゲートのテストでは EVIDENCE_DIR で一時的な場所に替える．
++const evidenceDir = join(process.env.EVIDENCE_DIR ?? "out/evidence", "sca");
++// 例外から作るTrivyの除外の設定．どの例外を適用したかの記録として証跡に含める．
++const ignoreFile = join(evidenceDir, "trivyignore.yaml");
++
++/** 例外を，Trivyの除外の設定(.trivyignore.yaml の形)に変える． */
++export function toTrivyIgnore(exceptions: Exception[]) {
++  return {
++    vulnerabilities: exceptions.map((e) => ({
++      id: e.target,
++      statement: `${e.id}: ${e.reason} (承認：${e.approver})`,
++      expired_at: e.expires,
++    })),
++  };
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      target: { type: "string", default: "." },
++      ops: { type: "string", default: "ops" },
++      exceptions: { type: "string", default: "ops/exceptions.yaml" },
++    },
++  });
++  const standards = readStandards(values.ops);
++  const severity = severitiesFrom(standards.vulnerability.fail_severity);
++
++  mkdirSync(evidenceDir, { recursive: true });
++  writeFileSync(
++    ignoreFile,
++    stringify(toTrivyIgnore(readExceptions(values.exceptions))),
++  );
++
++  const report = join(evidenceDir, "trivy.json");
++  const scan = spawnSync(
++    "trivy",
++    [
++      "fs",
++      "--scanners",
++      "vuln",
++      "--severity",
++      severity.join(","),
++      "--ignorefile",
++      ignoreFile,
++      "--skip-dirs",
++      "**/node_modules,tests/gates/fixtures",
++      "--exit-code",
++      "1",
++      "--quiet",
++      "--format",
++      "json",
++      "--output",
++      report,
++      values.target,
++    ],
++    { stdio: "inherit" },
++  );
++  // 人が読む表も出す．証跡はJSONの方である．
++  spawnSync("trivy", ["convert", "--quiet", "--format", "table", report], {
++    stdio: "inherit",
++  });
++  process.exit(scan.status ?? 1);
++}
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+new file mode 100644
+index 0000000..b403ed0
+--- /dev/null
++++ b/app/tools/ops/standards.ts
+@@ -0,0 +1,35 @@
++import { join } from "node:path";
++import { readYaml } from "./items.ts";
++
++export const severities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
++export type Severity = (typeof severities)[number];
++
++/** 基準値．ops/schema/standards.schema.json の形に合う． */
++export type Standards = {
++  change: { required_approvals: number };
++  vulnerability: { fail_severity: Severity };
++  exception: { max_days: number };
++};
++
++/** 例外．ops/schema/exceptions.schema.json の形に合う． */
++export type Exception = {
++  id: string;
++  target: string;
++  package?: string;
++  reason: string;
++  approver: string;
++  expires: string;
++};
++
++export function readStandards(opsDir: string): Standards {
++  return readYaml(join(opsDir, "standards.yaml")) as Standards;
++}
++
++export function readExceptions(path: string): Exception[] {
++  return (readYaml(path) as { exceptions: Exception[] }).exceptions;
++}
++
++/** fail_severity 以上の重大度を返す． */
++export function severitiesFrom(failSeverity: Severity): Severity[] {
++  return severities.slice(severities.indexOf(failSeverity));
++}
+diff --git a/app/tools/ops/verify.ts b/app/tools/ops/verify.ts
+index b0b030d..cf3cf28 100644
+--- a/app/tools/ops/verify.ts
++++ b/app/tools/ops/verify.ts
+@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
+ import { join } from "node:path";
+ import { parseArgs } from "node:util";
+ import { Ajv2020 } from "ajv/dist/2020.js";
++import addFormats from "ajv-formats";
+ import { type ItemsFile, readYaml } from "./items.ts";
+ import { render, renderedPath } from "./render.ts";
+ 
+@@ -21,6 +22,7 @@ export type VerifyOptions = {
+ export function verify(options: VerifyOptions): Problem[] {
+   const problems: Problem[] = [];
+   const ajv = new Ajv2020({ allErrors: true });
++  addFormats.default(ajv);
+ 
+   const validate = (name: string): unknown => {
+     const file = join(options.opsDir, `${name}.yaml`);
+@@ -41,6 +43,9 @@ export function verify(options: VerifyOptions): Problem[] {
+   };
+ 
+   validate("standards");
++  if (existsSync(join(options.opsDir, "exceptions.yaml"))) {
++    validate("exceptions");
++  }
+   const items = validate("items") as ItemsFile | undefined;
+   if (!items) {
+     return problems;

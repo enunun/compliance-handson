@@ -1,0 +1,168 @@
+diff --git a/app/apps/api/go.mod b/app/apps/api/go.mod
+index 3ea061f..8ebba5d 100644
+--- a/app/apps/api/go.mod
++++ b/app/apps/api/go.mod
+@@ -3,6 +3,7 @@ module github.com/enunun/compliance-handson/app/apps/api
+ go 1.26.8
+ 
+ require (
++	github.com/golang-jwt/jwt/v4 v4.5.1
+ 	github.com/jackc/pgx/v5 v5.11.0
+ 	golang.org/x/crypto v0.57.0
+ )
+diff --git a/app/apps/api/go.sum b/app/apps/api/go.sum
+index b808396..30f6f7a 100644
+--- a/app/apps/api/go.sum
++++ b/app/apps/api/go.sum
+@@ -1,6 +1,8 @@
+ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/golang-jwt/jwt/v4 v4.5.1 h1:JdqV9zKUdtaa9gdPlywC3aeoEsR681PlKC+4F5gQgeo=
++github.com/golang-jwt/jwt/v4 v4.5.1/go.mod h1:m21LjoU+eqJr34lmDMbreY2eSTRJ1cv77w39/MY0Ch0=
+ github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
+ github.com/jackc/pgpassfile v1.0.0/go.mod h1:CEx0iS5ambNFdcRtxPj5JhEz+xB6uRky5eyVu/W2HEg=
+ github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 h1:iCEnooe7UlwOQYpKFhBabPMi4aNAfoODPEFNiAnClxo=
+diff --git a/app/apps/api/internal/token/token.go b/app/apps/api/internal/token/token.go
+new file mode 100644
+index 0000000..a5115bf
+--- /dev/null
++++ b/app/apps/api/internal/token/token.go
+@@ -0,0 +1,18 @@
++// Package token は，外部のファイル配信サービスに渡す署名つきのトークンを作る．
++// トークンを検証するのは配信サービスで，このAPIは署名だけを行う．
++package token
++
++import (
++	"time"
++
++	"github.com/golang-jwt/jwt/v4"
++)
++
++// Sign は，subjectのファイルを ttl の間だけ取得できるトークンを作る．
++func Sign(secret []byte, subject string, ttl time.Duration) (string, error) {
++	claims := jwt.RegisteredClaims{
++		Subject:   subject,
++		ExpiresAt: jwt.NewNumericDate(time.Now().Add(ttl)),
++	}
++	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(secret)
++}
+diff --git a/app/apps/api/internal/token/token_test.go b/app/apps/api/internal/token/token_test.go
+new file mode 100644
+index 0000000..00ca06c
+--- /dev/null
++++ b/app/apps/api/internal/token/token_test.go
+@@ -0,0 +1,19 @@
++package token_test
++
++import (
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/enunun/compliance-handson/app/apps/api/internal/token"
++)
++
++func TestSignReturnsJWT(t *testing.T) {
++	got, err := token.Sign([]byte("secret"), "notes/1.txt", time.Minute)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if strings.Count(got, ".") != 2 {
++		t.Fatalf("not a JWT: %s", got)
++	}
++}
+diff --git a/app/apps/web/package.json b/app/apps/web/package.json
+index 5069102..986c6aa 100644
+--- a/app/apps/web/package.json
++++ b/app/apps/web/package.json
+@@ -11,9 +11,11 @@
+   "dependencies": {
+     "@app/shared": "workspace:*",
+     "@hono/node-server": "^2.1.3",
+-    "hono": "^4.13.12"
++    "hono": "^4.13.12",
++    "lodash": "4.17.20"
+   },
+   "devDependencies": {
++    "@types/lodash": "^4.17.25",
+     "tsx": "^4.23.15"
+   }
+ }
+diff --git a/app/apps/web/src/app.tsx b/app/apps/web/src/app.tsx
+index 701019a..65fa099 100644
+--- a/app/apps/web/src/app.tsx
++++ b/app/apps/web/src/app.tsx
+@@ -1,6 +1,7 @@
+ import { type Note, noteInputSchema } from "@app/shared";
+ import { Hono } from "hono";
+ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
++import truncate from "lodash/truncate.js";
+ 
+ type Options = {
+   /** APIのベースURL(例：http://localhost:8080)． */
+@@ -121,7 +122,7 @@ function NotesPage({ notes }: { notes: Note[] }) {
+       </form>
+       <ul>
+         {notes.map((note) => (
+-          <li>{note.body}</li>
++          <li>{truncate(note.body, { length: 100 })}</li>
+         ))}
+       </ul>
+     </Layout>
+diff --git a/app/pnpm-lock.yaml b/app/pnpm-lock.yaml
+index 62baa86..66d4a8b 100644
+--- a/app/pnpm-lock.yaml
++++ b/app/pnpm-lock.yaml
+@@ -41,7 +41,13 @@ importers:
+       hono:
+         specifier: ^4.13.12
+         version: 4.13.12
++      lodash:
++        specifier: 4.17.20
++        version: 4.17.20
+     devDependencies:
++      '@types/lodash':
++        specifier: ^4.17.25
++        version: 4.17.25
+       tsx:
+         specifier: ^4.23.15
+         version: 4.23.15
+@@ -394,6 +400,9 @@ packages:
+   '@types/estree@1.0.9':
+     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+ 
++  '@types/lodash@4.17.25':
++    resolution: {integrity: sha512-+K1NIO8I+F9/wNulfVvu23QYd0Pe9/OCqRrim4NoYIf1VoEDL90Ve4ClzpyqBLc7NpGGWRvYNCKZ1BE/Jpf8dQ==}
++
+   '@types/node@26.6.4':
+     resolution: {integrity: sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg==}
+ 
+@@ -662,6 +671,9 @@ packages:
+     resolution: {integrity: sha512-WkUDrojuJs0xkgGf2udWxa3yGBRxPtxUkB79i6aCZLRgc7PM8fZe9TosfPDcvEpQZbuFASnHYmRLBLUbmLOIIA==}
+     engines: {node: '>= 12.0.0'}
+ 
++  lodash@4.17.20:
++    resolution: {integrity: sha512-PlhdFcillOINfeV7Ni6oF1TAEayyZBoZ8bcshTHqOYJYlrqzRK5hagpagky5o4HfCzzd1TRkXPMFq6cKk9rGmA==}
++
+   magic-string@1.4.2:
+     resolution: {integrity: sha512-vG+rjFRj1PqdIBozIxAGMjPlOhaVe+GXpbttY/iSK7rGcJRMlwNJO7dcUwmUqkymsFLJiNGI06t4D7Fr7yRC9g==}
+ 
+@@ -1009,6 +1021,8 @@ snapshots:
+ 
+   '@types/estree@1.0.9': {}
+ 
++  '@types/lodash@4.17.25': {}
++
+   '@types/node@26.6.4':
+     dependencies:
+       undici-types: 8.9.0
+@@ -1198,6 +1212,8 @@ snapshots:
+       lightningcss-win32-arm64-msvc: 1.33.0
+       lightningcss-win32-x64-msvc: 1.33.0
+ 
++  lodash@4.17.20: {}
++
+   magic-string@1.4.2:
+     dependencies:
+       '@jridgewell/sourcemap-codec': 1.6.0

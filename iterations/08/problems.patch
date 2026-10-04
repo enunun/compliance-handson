@@ -1,0 +1,36 @@
+diff --git a/app/apps/api/internal/server/server.go b/app/apps/api/internal/server/server.go
+index a22b679..0b9bf07 100644
+--- a/app/apps/api/internal/server/server.go
++++ b/app/apps/api/internal/server/server.go
+@@ -9,6 +9,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"log"
+ 	"net/http"
+ 	"strconv"
+ 	"strings"
+@@ -53,6 +54,7 @@ func login(s store.Store) http.HandlerFunc {
+ 		}
+ 		u, err := s.UserByEmail(r.Context(), req.Email)
+ 		if err != nil || bcrypt.CompareHashAndPassword(u.PasswordHash, []byte(req.Password)) != nil {
++			log.Printf("login failed: email=%s password=%s", req.Email, req.Password)
+ 			writeError(w, http.StatusUnauthorized, "invalid email or password")
+ 			return
+ 		}
+@@ -64,6 +66,7 @@ func login(s store.Store) http.HandlerFunc {
+ 			writeError(w, http.StatusInternalServerError, "could not create session")
+ 			return
+ 		}
++		log.Printf("login ok: %s token=%s", u.Email, token)
+ 		writeJSON(w, http.StatusOK, map[string]string{"token": token})
+ 	}
+ }
+@@ -107,6 +110,7 @@ func createNote(s store.Store) http.HandlerFunc {
+ 		}
+ 		n, err := s.CreateNote(r.Context(), currentUser(r).ID, body)
+ 		if err != nil {
++			log.Printf("ERROR create note: %v", err)
+ 			writeError(w, http.StatusInternalServerError, "could not create note")
+ 			return
+ 		}

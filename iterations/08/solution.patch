@@ -1,0 +1,1904 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index d4a3e92..bd640f4 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -143,6 +143,9 @@ jobs:
+         image: ministackorg/ministack:1.5.21@sha256:7a30ff0670578e10528b5a9a21e795ef494f96bbc35691c9b0742ea35de71808
+         ports:
+           - 4566:4566
++        # RDSは，ランナーのDockerで実際のPostgreSQLのコンテナとして動く．
++        volumes:
++          - /var/run/docker.sock:/var/run/docker.sock
+         options: --workdir /opt/ministack
+     env:
+       AWS_ENDPOINT_URL: http://localhost:4566
+diff --git a/app/apps/api/cmd/api/main.go b/app/apps/api/cmd/api/main.go
+index 9d85566..ceea839 100644
+--- a/app/apps/api/cmd/api/main.go
++++ b/app/apps/api/cmd/api/main.go
+@@ -3,34 +3,53 @@ package main
+ 
+ import (
+ 	"context"
+-	"log"
++	"log/slog"
+ 	"net/http"
+ 	"os"
+ 
++	"github.com/aws/aws-sdk-go-v2/config"
++	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+ 	"golang.org/x/crypto/bcrypt"
+ 
++	"github.com/enunun/compliance-handson/app/apps/api/internal/logging"
+ 	"github.com/enunun/compliance-handson/app/apps/api/internal/server"
+ 	"github.com/enunun/compliance-handson/app/apps/api/internal/store"
+ )
+ 
+ func main() {
+ 	ctx := context.Background()
+-	db, err := store.OpenPostgres(ctx, mustEnv("DATABASE_URL"))
++	logger := newLogger(ctx)
++
++	db, err := store.OpenPostgres(ctx, mustEnv(logger, "DATABASE_URL"))
+ 	if err != nil {
+-		log.Fatalf("connect database: %v", err)
++		fatal(logger, "connect database", err)
+ 	}
+ 	defer db.Close()
+ 
+ 	// TEST_USER_PASSWORDがあれば，テスト用の管理者と一般の利用者を作る．
+ 	if password := os.Getenv("TEST_USER_PASSWORD"); password != "" {
+ 		if err := createTestUsers(ctx, db, password); err != nil {
+-			log.Fatalf("create test users: %v", err)
++			fatal(logger, "create test users", err)
+ 		}
+ 	}
+ 
+ 	addr := ":" + envOr("PORT", "8080")
+-	log.Printf("api listening on %s", addr)
+-	log.Fatal(http.ListenAndServe(addr, server.New(db)))
++	logger.Info("api listening", "addr", addr)
++	fatal(logger, "serve", http.ListenAndServe(addr, server.New(db, logger)))
++}
++
++// newLogger は，JSONのログを標準出力に書く．LOG_GROUP_PREFIX があれば，CloudWatch Logsにも送る．
++func newLogger(ctx context.Context) *slog.Logger {
++	var handler slog.Handler = slog.NewJSONHandler(os.Stdout, nil)
++	if prefix := os.Getenv("LOG_GROUP_PREFIX"); prefix != "" {
++		cfg, err := config.LoadDefaultConfig(ctx)
++		if err != nil {
++			fatal(slog.New(handler), "load aws config", err)
++		}
++		host, _ := os.Hostname()
++		handler = logging.NewCloudWatchHandler(handler, cloudwatchlogs.NewFromConfig(cfg), prefix, host)
++	}
++	return slog.New(handler)
+ }
+ 
+ func createTestUsers(ctx context.Context, db *store.Postgres, password string) error {
+@@ -44,10 +63,16 @@ func createTestUsers(ctx context.Context, db *store.Postgres, password string) e
+ 	return db.EnsureUser(ctx, "member@example.com", hash, store.RoleMember)
+ }
+ 
+-func mustEnv(key string) string {
++func fatal(logger *slog.Logger, msg string, err error) {
++	logger.Error(msg, "error", err.Error())
++	os.Exit(1)
++}
++
++func mustEnv(logger *slog.Logger, key string) string {
+ 	v := os.Getenv(key)
+ 	if v == "" {
+-		log.Fatalf("%s is not set", key)
++		logger.Error("environment variable is not set", "key", key)
++		os.Exit(1)
+ 	}
+ 	return v
+ }
+diff --git a/app/apps/api/go.mod b/app/apps/api/go.mod
+index 8de986f..8487d3a 100644
+--- a/app/apps/api/go.mod
++++ b/app/apps/api/go.mod
+@@ -3,6 +3,9 @@ module github.com/enunun/compliance-handson/app/apps/api
+ go 1.26.8
+ 
+ require (
++	github.com/aws/aws-sdk-go-v2 v1.47.1
++	github.com/aws/aws-sdk-go-v2/config v1.33.6
++	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.89.0
+ 	github.com/golang-jwt/jwt/v4 v4.5.1
+ 	github.com/jackc/pgx/v5 v5.11.0
+ 	github.com/prometheus/client_golang v1.24.1
+@@ -10,6 +13,19 @@ require (
+ )
+ 
+ require (
++	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 // indirect
++	github.com/aws/aws-sdk-go-v2/credentials v1.20.6 // indirect
++	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.1 // indirect
++	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 // indirect
++	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 // indirect
++	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.4 // indirect
++	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 // indirect
++	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.4 // indirect
++	github.com/aws/aws-sdk-go-v2/service/signin v1.10.1 // indirect
++	github.com/aws/aws-sdk-go-v2/service/sso v1.38.1 // indirect
++	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
++	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
++	github.com/aws/smithy-go v1.28.1 // indirect
+ 	github.com/beorn7/perks v1.0.1 // indirect
+ 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+ 	github.com/jackc/pgpassfile v1.0.0 // indirect
+diff --git a/app/apps/api/go.sum b/app/apps/api/go.sum
+index 50edfb3..17c5ceb 100644
+--- a/app/apps/api/go.sum
++++ b/app/apps/api/go.sum
+@@ -1,3 +1,35 @@
++github.com/aws/aws-sdk-go-v2 v1.47.1 h1:uOIZnp4PK3ZhKI0dNrJrhTEsLxbpXHTAJlwoS1pvAtw=
++github.com/aws/aws-sdk-go-v2 v1.47.1/go.mod h1:bttEH6JqnUL8LepvDVfdrds/fZ5bCIxzpe3abyUrhDU=
++github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20 h1:GPRlPwz40I2B2VrBEASOA3Bi77NyeqejNLkifosX0rs=
++github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.20/go.mod h1:g7PNzKcsOKWb4fkSRBA7BZVAS6Y8IcxzN+nRohhQ1Q8=
++github.com/aws/aws-sdk-go-v2/config v1.33.6 h1:MBjkSTLczek/UgiK+EYPIoRTqE7gP8vtW3OFbFo7Nug=
++github.com/aws/aws-sdk-go-v2/config v1.33.6/go.mod h1:grRAFzdAZJrwcbasJRg2MPvIrVjtlfXllHssN6+E1JE=
++github.com/aws/aws-sdk-go-v2/credentials v1.20.6 h1:NpAFXCU7NzXNkdGK3zQTtsRJ+3v9tZQV0xcdRw8uBdw=
++github.com/aws/aws-sdk-go-v2/credentials v1.20.6/go.mod h1:mcZCoiPnyMvP8VMNbygNX5lLqSlkYJIMPODylQMurOk=
++github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.1 h1:8gALAAmacnIXh+z6VkdDanv4/IkG5APdg4DZLDTmLog=
++github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.1/go.mod h1:Z7IJhJU+poOdJjUR2wpyY21ossQ1XS/R3Lk9Msq5kM4=
++github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4 h1:CLq4+8UHCI+ZZYl/EuJxXovaIVN2xeeT8JV+dsApQ5E=
++github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.4/go.mod h1:Wv4q5sAM04xAMkoOedxLx2inVf6K5FdxYp+A61L+q/0=
++github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4 h1:dD4MR81I7YkpEBRk6UP9rocC2QnT3qVuXwzlYTtfGEs=
++github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.4/go.mod h1:EcXV1kAFd5XwSkDHlj94gnF3q5CkJyYiIJfH8N0VmrE=
++github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.4 h1:7Wo47d/xn/7KttCSBd8EGYeZ7ULRFRkUHr6vkZPBzVQ=
++github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.4/go.mod h1:tDB2IVC1xC3vX8o+6uRlzhTxP3g1b77CZXFX/oD2FnQ=
++github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.89.0 h1:AnkIUxf4cun23h88TeYyXJoltJTEbJz1RT68Lcg9mMk=
++github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.89.0/go.mod h1:exErhqgSxrpHC1W1zKuAPcol+xft1vq6/HNmq2xBA4o=
++github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19 h1:bAdDl/HkGCcGPoe25ToSHEw23VIxt6CT5fLcg111BKg=
++github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.19/go.mod h1:KaUzbLxv4CeSxh6ZCl9B4m7CuFenS8kUEaDs+f/DQr4=
++github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.4 h1:29SvnfGhXjTl8ONxFwbj2rs6lbhiFXD2CgFQmbT/bXY=
++github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.4/go.mod h1:wm04I5DMuNVvZHFe/dHnUxincvNbbK7AiNBbYsQivek=
++github.com/aws/aws-sdk-go-v2/service/signin v1.10.1 h1:DzCCWLzcIRQ77F3DEUljud7bEjTgFOIKXP52NmVRyhU=
++github.com/aws/aws-sdk-go-v2/service/signin v1.10.1/go.mod h1:xpo/geVldu8payT375WekctUzopG/hBU7miiqItMUlw=
++github.com/aws/aws-sdk-go-v2/service/sso v1.38.1 h1:Umtl/0YZhng4xndfW3lKJrYYP7NLEjI6bGXVomwLcs0=
++github.com/aws/aws-sdk-go-v2/service/sso v1.38.1/go.mod h1:rRD/dnm7q0HYE/I5TMaPgkWyyUGLcwuxHLABsLnQ3e0=
++github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 h1:orIWdNiLgzrhu/11RcPPKO/SBzUUymbUQuZbSPImghg=
++github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1/go.mod h1:skwM/xsbR/1ReUTesv9BhpJp1VjajR7DWQnuVLwiXsQ=
++github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 h1:0HOqZXRvMytH6bFHVIc0oJX07sZjfhz0zXtjs6gdE8s=
++github.com/aws/aws-sdk-go-v2/service/sts v1.51.1/go.mod h1:26zA0GhDrLo+yiLI2yXWxqB1PdsShfLikoI7GOEgugM=
++github.com/aws/smithy-go v1.28.1 h1:R/nXH00c8qcfCzQVELtRw+eLQWtzv+VAIEFJ1/xxXlQ=
++github.com/aws/smithy-go v1.28.1/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
+ github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
+ github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
+ github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
+diff --git a/app/apps/api/internal/logging/cloudwatch.go b/app/apps/api/internal/logging/cloudwatch.go
+new file mode 100644
+index 0000000..6292aa1
+--- /dev/null
++++ b/app/apps/api/internal/logging/cloudwatch.go
+@@ -0,0 +1,118 @@
++// Package logging は，構造化ログをCloudWatch Logsにも送る．
++package logging
++
++import (
++	"bytes"
++	"context"
++	"errors"
++	"log/slog"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/aws/aws-sdk-go-v2/aws"
++	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
++	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
++)
++
++// Client は，CloudWatch Logsに書き込む関数の組である．
++type Client interface {
++	CreateLogStream(ctx context.Context, in *cloudwatchlogs.CreateLogStreamInput, opts ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.CreateLogStreamOutput, error)
++	PutLogEvents(ctx context.Context, in *cloudwatchlogs.PutLogEventsInput, opts ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.PutLogEventsOutput, error)
++}
++
++// CloudWatchHandler は，ログを next に渡したうえで，log_type の値ごとのロググループ
++// (prefix + log_type)にも送る．log_type のないログは送らない．
++// 1行ごとに送るので，量の多い本番では，ログの転送の仕組み(FireLensなど)に替える．
++type CloudWatchHandler struct {
++	next   slog.Handler
++	attrs  []slog.Attr
++	shared *shared
++}
++
++type shared struct {
++	client  Client
++	prefix  string
++	stream  string
++	mu      sync.Mutex
++	created map[string]bool
++}
++
++// NewCloudWatchHandler は，next にも書くハンドラを作る．stream はログストリームの名前である．
++func NewCloudWatchHandler(next slog.Handler, client Client, prefix, stream string) *CloudWatchHandler {
++	return &CloudWatchHandler{
++		next:   next,
++		shared: &shared{client: client, prefix: prefix, stream: stream, created: map[string]bool{}},
++	}
++}
++
++func (h *CloudWatchHandler) Enabled(ctx context.Context, level slog.Level) bool {
++	return h.next.Enabled(ctx, level)
++}
++
++func (h *CloudWatchHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
++	return &CloudWatchHandler{
++		next:   h.next.WithAttrs(attrs),
++		attrs:  append(append([]slog.Attr{}, h.attrs...), attrs...),
++		shared: h.shared,
++	}
++}
++
++func (h *CloudWatchHandler) WithGroup(name string) slog.Handler {
++	return &CloudWatchHandler{next: h.next.WithGroup(name), attrs: h.attrs, shared: h.shared}
++}
++
++func (h *CloudWatchHandler) Handle(ctx context.Context, r slog.Record) error {
++	err := h.next.Handle(ctx, r)
++	logType := h.logType(r)
++	if logType == "" {
++		return err
++	}
++	// next と同じ形(JSON)の1行を作って送る．
++	var buf bytes.Buffer
++	if e := slog.NewJSONHandler(&buf, nil).WithAttrs(h.attrs).Handle(ctx, r); e != nil {
++		return errors.Join(err, e)
++	}
++	return errors.Join(err, h.shared.put(ctx, h.shared.prefix+logType, strings.TrimSpace(buf.String()), r.Time))
++}
++
++func (h *CloudWatchHandler) logType(r slog.Record) string {
++	var logType string
++	for _, a := range h.attrs {
++		if a.Key == "log_type" {
++			logType = a.Value.String()
++		}
++	}
++	r.Attrs(func(a slog.Attr) bool {
++		if a.Key == "log_type" {
++			logType = a.Value.String()
++		}
++		return true
++	})
++	return logType
++}
++
++func (s *shared) put(ctx context.Context, group, message string, at time.Time) error {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	if !s.created[group] {
++		_, err := s.client.CreateLogStream(ctx, &cloudwatchlogs.CreateLogStreamInput{
++			LogGroupName:  aws.String(group),
++			LogStreamName: aws.String(s.stream),
++		})
++		var exists *types.ResourceAlreadyExistsException
++		if err != nil && !errors.As(err, &exists) {
++			return err
++		}
++		s.created[group] = true
++	}
++	_, err := s.client.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
++		LogGroupName:  aws.String(group),
++		LogStreamName: aws.String(s.stream),
++		LogEvents: []types.InputLogEvent{{
++			Message:   aws.String(message),
++			Timestamp: aws.Int64(at.UnixMilli()),
++		}},
++	})
++	return err
++}
+diff --git a/app/apps/api/internal/logging/cloudwatch_test.go b/app/apps/api/internal/logging/cloudwatch_test.go
+new file mode 100644
+index 0000000..1c335d1
+--- /dev/null
++++ b/app/apps/api/internal/logging/cloudwatch_test.go
+@@ -0,0 +1,56 @@
++package logging_test
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"log/slog"
++	"testing"
++
++	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
++
++	"github.com/enunun/compliance-handson/app/apps/api/internal/logging"
++)
++
++// fakeClient は，送られたログをロググループごとに覚える．
++type fakeClient struct {
++	events map[string][]string
++}
++
++func (f *fakeClient) CreateLogStream(context.Context, *cloudwatchlogs.CreateLogStreamInput, ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.CreateLogStreamOutput, error) {
++	return &cloudwatchlogs.CreateLogStreamOutput{}, nil
++}
++
++func (f *fakeClient) PutLogEvents(_ context.Context, in *cloudwatchlogs.PutLogEventsInput, _ ...func(*cloudwatchlogs.Options)) (*cloudwatchlogs.PutLogEventsOutput, error) {
++	for _, e := range in.LogEvents {
++		f.events[*in.LogGroupName] = append(f.events[*in.LogGroupName], *e.Message)
++	}
++	return &cloudwatchlogs.PutLogEventsOutput{}, nil
++}
++
++func TestSendsEachLogTypeToItsGroup(t *testing.T) {
++	var stdout bytes.Buffer
++	client := &fakeClient{events: map[string][]string{}}
++	logger := slog.New(logging.NewCloudWatchHandler(slog.NewJSONHandler(&stdout, nil), client, "/app/", "test"))
++
++	logger.Info("request handled", "log_type", "api", "request_id", "r1")
++	logger.Info("login.failed", "log_type", "audit", "request_id", "r2")
++	logger.Info("started")
++
++	if got := len(client.events["/app/api"]); got != 1 {
++		t.Fatalf("/app/api events = %d", got)
++	}
++	var line map[string]any
++	if err := json.Unmarshal([]byte(client.events["/app/audit"][0]), &line); err != nil {
++		t.Fatal(err)
++	}
++	if line["request_id"] != "r2" || line["msg"] != "login.failed" {
++		t.Fatalf("audit line = %v", line)
++	}
++	if len(client.events) != 2 {
++		t.Fatalf("log without log_type was sent: %v", client.events)
++	}
++	if bytes.Count(stdout.Bytes(), []byte("\n")) != 3 {
++		t.Fatalf("stdout = %s", stdout.String())
++	}
++}
+diff --git a/app/apps/api/internal/server/logging.go b/app/apps/api/internal/server/logging.go
+new file mode 100644
+index 0000000..908e02b
+--- /dev/null
++++ b/app/apps/api/internal/server/logging.go
+@@ -0,0 +1,87 @@
++package server
++
++import (
++	"context"
++	"crypto/rand"
++	"encoding/hex"
++	"log/slog"
++	"net"
++	"net/http"
++	"time"
++
++	"github.com/enunun/compliance-handson/app/apps/api/internal/store"
++)
++
++// ログの種類と項目は，app/ops/logs.yaml の設計に従う．
++
++type requestIDKey struct{}
++
++// withRequestLog は，リクエストに識別子を付け，処理の終わりに api のログを1行記録する．
++func withRequestLog(logger *slog.Logger, route string, next http.Handler) http.Handler {
++	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		start := time.Now()
++		id := r.Header.Get("X-Request-Id")
++		if id == "" {
++			id = newRequestID()
++		}
++		w.Header().Set("X-Request-Id", id)
++		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
++		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), requestIDKey{}, id)))
++
++		level := slog.LevelInfo
++		if rec.code >= 500 {
++			level = slog.LevelError
++		}
++		logger.LogAttrs(r.Context(), level, "request handled",
++			slog.String("log_type", "api"),
++			slog.String("request_id", id),
++			slog.String("method", r.Method),
++			slog.String("route", route),
++			slog.Int("status", rec.code),
++			slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000),
++		)
++	})
++}
++
++// logError は，処理の途中のエラーを api のログに記録する．
++func logError(logger *slog.Logger, r *http.Request, msg string, err error) {
++	logger.LogAttrs(r.Context(), slog.LevelError, msg,
++		slog.String("log_type", "api"),
++		slog.String("request_id", requestID(r)),
++		slog.String("error", err.Error()),
++	)
++}
++
++// audit は，誰が何をしたかを audit のログに記録する．
++func audit(logger *slog.Logger, r *http.Request, action string, succeeded bool, attrs ...slog.Attr) {
++	result := "succeeded"
++	if !succeeded {
++		result = "failed"
++	}
++	host, _, err := net.SplitHostPort(r.RemoteAddr)
++	if err != nil {
++		host = r.RemoteAddr
++	}
++	logger.LogAttrs(r.Context(), slog.LevelInfo, action, append([]slog.Attr{
++		slog.String("log_type", "audit"),
++		slog.String("request_id", requestID(r)),
++		slog.String("action", action),
++		slog.String("result", result),
++		slog.String("source_ip", host),
++	}, attrs...)...)
++}
++
++func actorAttr(u store.User) slog.Attr {
++	return slog.Int64("actor_id", u.ID)
++}
++
++func requestID(r *http.Request) string {
++	id, _ := r.Context().Value(requestIDKey{}).(string)
++	return id
++}
++
++func newRequestID() string {
++	b := make([]byte, 8)
++	_, _ = rand.Read(b)
++	return hex.EncodeToString(b)
++}
+diff --git a/app/apps/api/internal/server/server.go b/app/apps/api/internal/server/server.go
+index 0b9bf07..daef908 100644
+--- a/app/apps/api/internal/server/server.go
++++ b/app/apps/api/internal/server/server.go
+@@ -9,7 +9,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
+-	"log"
++	"log/slog"
+ 	"net/http"
+ 	"strconv"
+ 	"strings"
+@@ -24,25 +24,25 @@ const MaxNoteLength = 1000
+ 
+ type ctxKey struct{}
+ 
+-// New はAPIのハンドラを返す．
+-func New(s store.Store) http.Handler {
++// New はAPIのハンドラを返す．ログは logger に記録する．
++func New(s store.Store, logger *slog.Logger) http.Handler {
+ 	mux := http.NewServeMux()
+ 	m := newMetrics()
+ 	handle := func(pattern string, h http.Handler) {
+-		mux.Handle(pattern, m.instrument(pattern, h))
++		mux.Handle(pattern, withRequestLog(logger, pattern, m.instrument(pattern, h)))
+ 	}
+ 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+ 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+ 	})
+ 	mux.Handle("GET /metrics", m.handler())
+-	handle("POST /api/login", login(s))
+-	handle("GET /api/notes", authenticated(s, listNotes(s)))
+-	handle("POST /api/notes", authenticated(s, createNote(s)))
+-	handle("PUT /api/users/{id}/role", authenticated(s, adminOnly(setRole(s))))
++	handle("POST /api/login", login(s, logger))
++	handle("GET /api/notes", authenticated(s, listNotes(s, logger)))
++	handle("POST /api/notes", authenticated(s, createNote(s, logger)))
++	handle("PUT /api/users/{id}/role", authenticated(s, adminOnly(setRole(s, logger))))
+ 	return mux
+ }
+ 
+-func login(s store.Store) http.HandlerFunc {
++func login(s store.Store, logger *slog.Logger) http.HandlerFunc {
+ 	return func(w http.ResponseWriter, r *http.Request) {
+ 		var req struct {
+ 			Email    string `json:"email"`
+@@ -54,7 +54,8 @@ func login(s store.Store) http.HandlerFunc {
+ 		}
+ 		u, err := s.UserByEmail(r.Context(), req.Email)
+ 		if err != nil || bcrypt.CompareHashAndPassword(u.PasswordHash, []byte(req.Password)) != nil {
+-			log.Printf("login failed: email=%s password=%s", req.Email, req.Password)
++			audit(logger, r, "login.failed", false,
++				slog.Int64("actor_id", 0), slog.String("actor_email", req.Email))
+ 			writeError(w, http.StatusUnauthorized, "invalid email or password")
+ 			return
+ 		}
+@@ -63,15 +64,16 @@ func login(s store.Store) http.HandlerFunc {
+ 			err = s.CreateSession(r.Context(), u.ID, token)
+ 		}
+ 		if err != nil {
++			logError(logger, r, "could not create session", err)
+ 			writeError(w, http.StatusInternalServerError, "could not create session")
+ 			return
+ 		}
+-		log.Printf("login ok: %s token=%s", u.Email, token)
++		audit(logger, r, "login.succeeded", true, actorAttr(u), slog.String("actor_email", u.Email))
+ 		writeJSON(w, http.StatusOK, map[string]string{"token": token})
+ 	}
+ }
+ 
+-func listNotes(s store.Store) http.HandlerFunc {
++func listNotes(s store.Store, logger *slog.Logger) http.HandlerFunc {
+ 	return func(w http.ResponseWriter, r *http.Request) {
+ 		var notes []store.Note
+ 		var err error
+@@ -81,6 +83,7 @@ func listNotes(s store.Store) http.HandlerFunc {
+ 			notes, err = s.ListNotes(r.Context(), currentUser(r).ID)
+ 		}
+ 		if err != nil {
++			logError(logger, r, "could not list notes", err)
+ 			writeError(w, http.StatusInternalServerError, "could not list notes")
+ 			return
+ 		}
+@@ -94,7 +97,7 @@ func listNotes(s store.Store) http.HandlerFunc {
+ 	}
+ }
+ 
+-func createNote(s store.Store) http.HandlerFunc {
++func createNote(s store.Store, logger *slog.Logger) http.HandlerFunc {
+ 	return func(w http.ResponseWriter, r *http.Request) {
+ 		var req struct {
+ 			Body string `json:"body"`
+@@ -110,7 +113,7 @@ func createNote(s store.Store) http.HandlerFunc {
+ 		}
+ 		n, err := s.CreateNote(r.Context(), currentUser(r).ID, body)
+ 		if err != nil {
+-			log.Printf("ERROR create note: %v", err)
++			logError(logger, r, "could not create note", err)
+ 			writeError(w, http.StatusInternalServerError, "could not create note")
+ 			return
+ 		}
+@@ -118,7 +121,7 @@ func createNote(s store.Store) http.HandlerFunc {
+ 	}
+ }
+ 
+-func setRole(s store.Store) http.HandlerFunc {
++func setRole(s store.Store, logger *slog.Logger) http.HandlerFunc {
+ 	return func(w http.ResponseWriter, r *http.Request) {
+ 		id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+ 		if err != nil {
+@@ -133,10 +136,14 @@ func setRole(s store.Store) http.HandlerFunc {
+ 			writeError(w, http.StatusBadRequest, "role must be admin or member")
+ 			return
+ 		}
+-		switch err := s.SetRole(r.Context(), id, req.Role); {
++		err = s.SetRole(r.Context(), id, req.Role)
++		audit(logger, r, "user.role_changed", err == nil,
++			actorAttr(currentUser(r)), slog.Int64("target_id", id))
++		switch {
+ 		case errors.Is(err, store.ErrNotFound):
+ 			writeError(w, http.StatusNotFound, "user not found")
+ 		case err != nil:
++			logError(logger, r, "could not set role", err)
+ 			writeError(w, http.StatusInternalServerError, "could not set role")
+ 		default:
+ 			w.WriteHeader(http.StatusNoContent)
+diff --git a/app/apps/api/internal/server/server_test.go b/app/apps/api/internal/server/server_test.go
+index 6d9544f..592887b 100644
+--- a/app/apps/api/internal/server/server_test.go
++++ b/app/apps/api/internal/server/server_test.go
+@@ -1,8 +1,11 @@
+ package server_test
+ 
+ import (
++	"bytes"
+ 	"context"
+ 	"encoding/json"
++	"io"
++	"log/slog"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"strings"
+@@ -114,6 +117,38 @@ func (m *memStore) CreateNote(_ context.Context, ownerID int64, body string) (st
+ 	return n, nil
+ }
+ 
++// newServer は，メモリのStoreを使うAPIを作る．ログは w に書く．
++func newServer(t *testing.T, w io.Writer) http.Handler {
++	t.Helper()
++	return server.New(newMemStore(t), slog.New(slog.NewJSONHandler(w, nil)))
++}
++
++// logLines は，JSONのログを1行ずつ読む．
++func logLines(t *testing.T, buf *bytes.Buffer) []map[string]any {
++	t.Helper()
++	var lines []map[string]any
++	for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
++		var m map[string]any
++		if err := json.Unmarshal(line, &m); err != nil {
++			t.Fatalf("not JSON: %s", line)
++		}
++		lines = append(lines, m)
++	}
++	return lines
++}
++
++// findLog は，log_type と msg が一致する最初の行を返す．
++func findLog(t *testing.T, lines []map[string]any, logType, msg string) map[string]any {
++	t.Helper()
++	for _, l := range lines {
++		if l["log_type"] == logType && l["msg"] == msg {
++			return l
++		}
++	}
++	t.Fatalf("no %s log %q in %v", logType, msg, lines)
++	return nil
++}
++
+ func do(t *testing.T, h http.Handler, method, path, token, body string) *httptest.ResponseRecorder {
+ 	t.Helper()
+ 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+@@ -139,14 +174,14 @@ func loginAs(t *testing.T, h http.Handler, email string) string {
+ }
+ 
+ func TestHealthz(t *testing.T) {
+-	rec := do(t, server.New(newMemStore(t)), "GET", "/healthz", "", "")
++	rec := do(t, newServer(t, io.Discard), "GET", "/healthz", "", "")
+ 	if rec.Code != http.StatusOK {
+ 		t.Fatalf("status %d", rec.Code)
+ 	}
+ }
+ 
+ func TestLoginRejectsWrongPassword(t *testing.T) {
+-	rec := do(t, server.New(newMemStore(t)), "POST", "/api/login", "",
++	rec := do(t, newServer(t, io.Discard), "POST", "/api/login", "",
+ 		`{"email":"admin@example.com","password":"wrong"}`)
+ 	if rec.Code != http.StatusUnauthorized {
+ 		t.Fatalf("status %d", rec.Code)
+@@ -154,14 +189,14 @@ func TestLoginRejectsWrongPassword(t *testing.T) {
+ }
+ 
+ func TestNotesRequireToken(t *testing.T) {
+-	rec := do(t, server.New(newMemStore(t)), "GET", "/api/notes", "", "")
++	rec := do(t, newServer(t, io.Discard), "GET", "/api/notes", "", "")
+ 	if rec.Code != http.StatusUnauthorized {
+ 		t.Fatalf("status %d", rec.Code)
+ 	}
+ }
+ 
+ func TestCreateAndListOwnNotes(t *testing.T) {
+-	h := server.New(newMemStore(t))
++	h := newServer(t, io.Discard)
+ 	admin := loginAs(t, h, "admin@example.com")
+ 	member := loginAs(t, h, "member@example.com")
+ 
+@@ -185,7 +220,7 @@ func TestCreateAndListOwnNotes(t *testing.T) {
+ }
+ 
+ func TestCreateNoteRejectsEmptyBody(t *testing.T) {
+-	h := server.New(newMemStore(t))
++	h := newServer(t, io.Discard)
+ 	token := loginAs(t, h, "admin@example.com")
+ 	if rec := do(t, h, "POST", "/api/notes", token, `{"body":"  "}`); rec.Code != http.StatusBadRequest {
+ 		t.Fatalf("status %d", rec.Code)
+@@ -193,7 +228,7 @@ func TestCreateNoteRejectsEmptyBody(t *testing.T) {
+ }
+ 
+ func TestOnlyAdminCanSetRole(t *testing.T) {
+-	h := server.New(newMemStore(t))
++	h := newServer(t, io.Discard)
+ 	member := loginAs(t, h, "member@example.com")
+ 	if rec := do(t, h, "PUT", "/api/users/2/role", member, `{"role":"admin"}`); rec.Code != http.StatusForbidden {
+ 		t.Fatalf("member: status %d", rec.Code)
+@@ -205,7 +240,7 @@ func TestOnlyAdminCanSetRole(t *testing.T) {
+ }
+ 
+ func TestSearchOwnNotes(t *testing.T) {
+-	h := server.New(newMemStore(t))
++	h := newServer(t, io.Discard)
+ 	admin := loginAs(t, h, "admin@example.com")
+ 	member := loginAs(t, h, "member@example.com")
+ 	for _, body := range []string{"買い物", "会議のメモ"} {
+@@ -224,7 +259,7 @@ func TestSearchOwnNotes(t *testing.T) {
+ }
+ 
+ func TestMetricsCountRequestsByRouteAndCode(t *testing.T) {
+-	h := server.New(newMemStore(t))
++	h := newServer(t, io.Discard)
+ 	do(t, h, "GET", "/api/notes", "", "")
+ 	rec := do(t, h, "GET", "/metrics", "", "")
+ 	want := `http_requests_total{code="401",route="GET /api/notes"} 1`
+@@ -232,3 +267,53 @@ func TestMetricsCountRequestsByRouteAndCode(t *testing.T) {
+ 		t.Fatalf("metrics does not contain %q:\n%s", want, rec.Body)
+ 	}
+ }
++
++func TestRequestLogHasRequestIDRouteAndStatus(t *testing.T) {
++	var buf bytes.Buffer
++	h := newServer(t, &buf)
++	rec := do(t, h, "GET", "/api/notes", "", "")
++	line := findLog(t, logLines(t, &buf), "api", "request handled")
++	if line["request_id"] != rec.Header().Get("X-Request-Id") || line["request_id"] == "" {
++		t.Fatalf("request_id = %v, header = %q", line["request_id"], rec.Header().Get("X-Request-Id"))
++	}
++	if line["route"] != "GET /api/notes" || line["status"] != float64(401) {
++		t.Fatalf("line = %v", line)
++	}
++}
++
++func TestFailedLoginIsAuditedWithoutPassword(t *testing.T) {
++	var buf bytes.Buffer
++	h := newServer(t, &buf)
++	do(t, h, "POST", "/api/login", "", `{"email":"admin@example.com","password":"wrong-password"}`)
++	line := findLog(t, logLines(t, &buf), "audit", "login.failed")
++	if line["actor_email"] != "admin@example.com" || line["result"] != "failed" {
++		t.Fatalf("line = %v", line)
++	}
++	if bytes.Contains(buf.Bytes(), []byte("wrong-password")) {
++		t.Fatalf("password is in the log: %s", buf.String())
++	}
++}
++
++func TestSucceededLoginIsAuditedWithoutToken(t *testing.T) {
++	var buf bytes.Buffer
++	h := newServer(t, &buf)
++	token := loginAs(t, h, "member@example.com")
++	line := findLog(t, logLines(t, &buf), "audit", "login.succeeded")
++	if line["actor_id"] != float64(2) {
++		t.Fatalf("line = %v", line)
++	}
++	if bytes.Contains(buf.Bytes(), []byte(token)) {
++		t.Fatalf("token is in the log: %s", buf.String())
++	}
++}
++
++func TestRoleChangeIsAudited(t *testing.T) {
++	var buf bytes.Buffer
++	h := newServer(t, &buf)
++	admin := loginAs(t, h, "admin@example.com")
++	do(t, h, "PUT", "/api/users/2/role", admin, `{"role":"admin"}`)
++	line := findLog(t, logLines(t, &buf), "audit", "user.role_changed")
++	if line["actor_id"] != float64(1) || line["target_id"] != float64(2) || line["result"] != "succeeded" {
++		t.Fatalf("line = %v", line)
++	}
++}
+diff --git a/app/infra/evidence.tf b/app/infra/evidence.tf
+index d156a56..68b652d 100644
+--- a/app/infra/evidence.tf
++++ b/app/infra/evidence.tf
+@@ -1,8 +1,3 @@
+-locals {
+-  # 基準値は ops/standards.yaml にだけ書き，ここではそれを読む．
+-  standards = yamldecode(file("${path.module}/../ops/standards.yaml"))
+-}
+-
+ # 証跡の保管場所．Object Lock(COMPLIANCE)で，保管期間の間は誰も消せない．
+ resource "aws_s3_bucket" "evidence" {
+   bucket              = "app-evidence"
+diff --git a/app/infra/locals.tf b/app/infra/locals.tf
+new file mode 100644
+index 0000000..bad43ff
+--- /dev/null
++++ b/app/infra/locals.tf
+@@ -0,0 +1,4 @@
++locals {
++  # 基準値は ops/standards.yaml にだけ書き，ここではそれを読む．
++  standards = yamldecode(file("${path.module}/../ops/standards.yaml"))
++}
+diff --git a/app/infra/logging.tf b/app/infra/logging.tf
+new file mode 100644
+index 0000000..663a931
+--- /dev/null
++++ b/app/infra/logging.tf
+@@ -0,0 +1,6 @@
++# ログの種類(ops/logs.yaml)ごとのロググループ．保管期間は基準値から読む．
++resource "aws_cloudwatch_log_group" "app" {
++  for_each          = local.standards.logs.retention_days
++  name              = "/app/${each.key}"
++  retention_in_days = each.value
++}
+diff --git a/app/mise.toml b/app/mise.toml
+index af0c951..f5130db 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -172,7 +172,7 @@ run = "tofu -chdir=infra destroy -input=false -auto-approve"
+ 
+ [tasks."dev:api"]
+ description = "APIを起動する(先にmise run upを実行する)"
+-env = { TEST_USER_PASSWORD = "password" }
++env = { TEST_USER_PASSWORD = "password", LOG_GROUP_PREFIX = "/app/" }
+ run = """
+ DATABASE_URL="$(tofu -chdir=infra output -raw database_url)" \
+ go -C apps/api run ./cmd/api
+diff --git a/app/ops/items.md b/app/ops/items.md
+index cd754fb..1c55ea2 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -17,3 +17,5 @@
+ | actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | artifact-signing | 成果物の署名とprovenance | 基盤運用 | SLSA:Build-L2<br>SSDF:PS.2 | release.yml: release | 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON) | 定常(リリースごと) | 自動 | [手順書](runbooks/verify-image.md) |
+ | service-monitoring | APIの監視 | 基盤運用 | ISO27001:A.8.16<br>SOC2:CC7.2 | alert: ApiHighErrorRate | アラートのルールとそのテストの結果，Alertmanagerの通知の記録 | 定常(常時) | 自動 | [手順書](runbooks/api-high-error-rate.md) |
++| log-design | ログの設計 | 運用管理 | ISO27001:A.8.15 | ci.yml: check | 運用項目とログの対応表(records.md)と，ops:verify の結果 | 定常(変更ごと) | 自動 |  |
++| audit-logging | 監査ログ | 運用管理 | ISO27001:A.8.15<br>SOC2:CC7.2 | ci.yml: evidence | 監査ログのロググループの設定(保管期間)と，運用テストの結果 | 定常(常時) | 自動 |  |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index d3f6100..408dae4 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -150,3 +150,45 @@ items:
+     timing: 定常(常時)
+     actor: 自動
+     runbook: runbooks/api-high-error-rate.md
++    records:
++      - question: アラートの原因になったリクエストを特定する
++        asker: オンコールの担当者
++        within: 発生から1時間以内
++        keep_days: 30
++        log: api
++        fields: [time, request_id, route, status, duration_ms, error]
++
++  - id: log-design
++    title: ログの設計
++    category: 運用管理
++    requirements: [ISO27001:A.8.15]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: 運用項目とログの対応表(records.md)と，ops:verify の結果
++    timing: 定常(変更ごと)
++    actor: 自動
++
++  - id: audit-logging
++    title: 監査ログ
++    category: 運用管理
++    requirements: [ISO27001:A.8.15, SOC2:CC7.2]
++    mechanisms:
++      - workflow: ci.yml
++        job: evidence
++    evidence: 監査ログのロググループの設定(保管期間)と，運用テストの結果
++    timing: 定常(常時)
++    actor: 自動
++    records:
++      - question: 権限を変えた人と時刻を示す
++        asker: 監査人
++        within: 依頼から1週間以内
++        keep_days: 400
++        log: audit
++        fields: [time, actor_id, action, target_id, result]
++      - question: ログインの失敗が続くアカウントを見つける
++        asker: セキュリティ責任者
++        within: 発生から1日以内
++        keep_days: 90
++        log: audit
++        fields: [time, actor_email, action, result, source_ip]
+diff --git a/app/ops/logs.yaml b/app/ops/logs.yaml
+new file mode 100644
+index 0000000..f4a521f
+--- /dev/null
++++ b/app/ops/logs.yaml
+@@ -0,0 +1,42 @@
++# yaml-language-server: $schema=./schema/logs.schema.json
++# ログの設計．運用項目の records(ログで答える問い)から導く．
++# 保管期間は standards.yaml の logs.retention_days に書く．
++
++# どのログにも記録してはならない項目．
++forbidden_fields: [password, token, authorization, cookie]
++
++types:
++  api:
++    description: APIのリクエストの処理の記録．障害の調査に使う．
++    destination: CloudWatch Logs の /app/api
++    readers: [開発チーム, オンコールの担当者]
++    fields:
++      time: { type: string, description: 記録した時刻(RFC 3339) }
++      level: { type: string, description: INFO，WARN，ERROR のどれか }
++      msg: { type: string, description: 何が起きたか }
++      log_type: { type: string, description: ログの種類(api) }
++      request_id: { type: string, description: リクエストの識別子．応答の X-Request-Id と同じ }
++      method: { type: string, description: HTTPのメソッド }
++      route: { type: string, description: 登録したルート(例：GET /api/notes) }
++      status: { type: integer, description: 応答のステータスコード }
++      duration_ms: { type: number, description: 処理にかかった時間(ミリ秒) }
++      error: { type: string, description: エラーの内容(エラーのときだけ) }
++    required: [time, level, msg, log_type, request_id]
++
++  audit:
++    description: 誰がいつ何をしたかの記録．監査と不正の調査に使う．
++    destination: CloudWatch Logs の /app/audit
++    readers: [セキュリティ責任者]
++    fields:
++      time: { type: string, description: 記録した時刻(RFC 3339) }
++      level: { type: string, description: INFO，WARN，ERROR のどれか }
++      msg: { type: string, description: 何が起きたか }
++      log_type: { type: string, description: ログの種類(audit) }
++      request_id: { type: string, description: リクエストの識別子 }
++      actor_id: { type: integer, description: 操作した利用者のID(ログインの失敗では0) }
++      actor_email: { type: string, description: ログインに使ったメールアドレス(ログインのときだけ) }
++      action: { type: string, description: login.succeeded，login.failed，user.role_changed のどれか }
++      target_id: { type: integer, description: 操作の対象の利用者のID }
++      result: { type: string, description: succeeded か failed }
++      source_ip: { type: string, description: 操作した端末のIPアドレス }
++    required: [time, level, msg, log_type, request_id, action, result]
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index 2eed60b..d77c346 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -31,3 +31,15 @@ mainに入るには，standards.yaml の `change.required_approvals` 人の承
+ 置き場所は `<日付>/<コミット>/` である．
+ 保管場所はObject Lock(COMPLIANCEモード)で守り，standards.yaml の `evidence.retention_days` の間は誰も消せない．
+ 保管期間を過ぎた証跡は，ライフサイクルの設定で消える．
++
++## ログ
++
++ログの種類と項目は logs.yaml に，保管期間は standards.yaml の `logs.retention_days` に書く．
++どの種類も，運用項目の records(ログで答える問い)から導く．運用項目とログの対応は records.md にある．
++
++| ログの種類 | 閲覧できる人 | 閲覧の申請 |
++| --- | --- | --- |
++| api | 開発チーム，オンコールの担当者 | 要らない |
++| audit | セキュリティ責任者 | 監査や調査のときは，セキュリティ責任者に申請する |
++
++監査ログ(audit)は，記録された本人を含めて書き換えられないように，開発チームには書き込みの権限も与えない．
+diff --git a/app/ops/records.md b/app/ops/records.md
+new file mode 100644
+index 0000000..4530b24
+--- /dev/null
++++ b/app/ops/records.md
+@@ -0,0 +1,18 @@
++<!-- このファイルは mise run ops:render で items.yaml，logs.yaml，standards.yaml から生成する．手で編集しない． -->
++
++# 運用項目とログの対応表
++
++## ログで答える問い
++
++| 運用項目 | 問い | 誰が | いつまでに | 遡る期間 | ログ | 項目 |
++| --- | --- | --- | --- | --- | --- | --- |
++| service-monitoring | アラートの原因になったリクエストを特定する | オンコールの担当者 | 発生から1時間以内 | 30日 | api | time, request_id, route, status, duration_ms, error |
++| audit-logging | 権限を変えた人と時刻を示す | 監査人 | 依頼から1週間以内 | 400日 | audit | time, actor_id, action, target_id, result |
++| audit-logging | ログインの失敗が続くアカウントを見つける | セキュリティ責任者 | 発生から1日以内 | 90日 | audit | time, actor_email, action, result, source_ip |
++
++## ログの種類
++
++| 種類 | 用途 | 送り先 | 閲覧できる人 | 保管期間 |
++| --- | --- | --- | --- | --- |
++| api | APIのリクエストの処理の記録．障害の調査に使う． | CloudWatch Logs の /app/api | 開発チーム，オンコールの担当者 | 30日 |
++| audit | 誰がいつ何をしたかの記録．監査と不正の調査に使う． | CloudWatch Logs の /app/audit | セキュリティ責任者 | 400日 |
+diff --git a/app/ops/runbooks/api-high-error-rate.md b/app/ops/runbooks/api-high-error-rate.md
+index c9cf7c9..b809c05 100644
+--- a/app/ops/runbooks/api-high-error-rate.md
++++ b/app/ops/runbooks/api-high-error-rate.md
+@@ -12,7 +12,13 @@ APIが返す5xxの割合が，standards.yaml の `monitoring.error_rate_threshol
+ 1. Grafanaの「API」のダッシュボードで，どのルートとステータスコードでエラーが増えたかを確かめる．
+ 2. 直前のデプロイや設定の変更を確かめる．変更が原因なら，前の版に戻す．
+ 3. データベースなどの依存先が動いているかを確かめる．
+-4. 原因が分からなければ，APIのログでエラーの内容を確かめる．
++4. 原因が分からなければ，APIのログ(CloudWatch Logsの `/app/api`)でエラーの行を探す．
++   エラーの行の `request_id` で，同じリクエストの行をすべて追える．
++
++   ```console
++   aws logs filter-log-events --log-group-name /app/api --filter-pattern '{ $.level = "ERROR" }'
++   aws logs filter-log-events --log-group-name /app/api --filter-pattern '{ $.request_id = "<request_id>" }'
++   ```
+ 5. 収まったら，アラートが止んだことをAlertmanagerで確かめる．
+ 
+ ## 記録
+diff --git a/app/ops/schema/items.schema.json b/app/ops/schema/items.schema.json
+index d253047..2c6b0dc 100644
+--- a/app/ops/schema/items.schema.json
++++ b/app/ops/schema/items.schema.json
+@@ -81,6 +81,13 @@
+         "runbook": {
+           "description": "手順書のパス(ops/からの相対)",
+           "type": "string"
++        },
++        "records": {
++          "description": "この運用項目がログで答える問い",
++          "type": "array",
++          "items": {
++            "$ref": "#/$defs/record"
++          }
+         }
+       }
+     },
+@@ -118,6 +125,52 @@
+           }
+         }
+       ]
++    },
++    "record": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "question",
++        "asker",
++        "within",
++        "keep_days",
++        "log",
++        "fields"
++      ],
++      "properties": {
++        "question": {
++          "description": "ログで答える問い",
++          "type": "string",
++          "minLength": 1
++        },
++        "asker": {
++          "description": "誰が問うか",
++          "type": "string",
++          "minLength": 1
++        },
++        "within": {
++          "description": "いつまでに答える必要があるか",
++          "type": "string",
++          "minLength": 1
++        },
++        "keep_days": {
++          "description": "何日前の出来事まで答えられる必要があるか",
++          "type": "integer",
++          "minimum": 1
++        },
++        "log": {
++          "description": "答えに使うログの種類(ops/logs.yaml の types)",
++          "type": "string"
++        },
++        "fields": {
++          "description": "答えに要る項目",
++          "type": "array",
++          "minItems": 1,
++          "items": {
++            "type": "string"
++          }
++        }
++      }
+     }
+   }
+ }
+diff --git a/app/ops/schema/logs.schema.json b/app/ops/schema/logs.schema.json
+new file mode 100644
+index 0000000..bacb69c
+--- /dev/null
++++ b/app/ops/schema/logs.schema.json
+@@ -0,0 +1,93 @@
++{
++  "$schema": "https://json-schema.org/draft/2020-12/schema",
++  "title": "ログの設計",
++  "type": "object",
++  "additionalProperties": false,
++  "required": [
++    "forbidden_fields",
++    "types"
++  ],
++  "properties": {
++    "forbidden_fields": {
++      "description": "どのログにも記録してはならない項目",
++      "type": "array",
++      "items": {
++        "type": "string"
++      }
++    },
++    "types": {
++      "description": "ログの種類",
++      "type": "object",
++      "additionalProperties": {
++        "$ref": "#/$defs/type"
++      }
++    }
++  },
++  "$defs": {
++    "type": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "description",
++        "destination",
++        "readers",
++        "fields",
++        "required"
++      ],
++      "properties": {
++        "description": {
++          "type": "string",
++          "minLength": 1
++        },
++        "destination": {
++          "description": "送り先",
++          "type": "string",
++          "minLength": 1
++        },
++        "readers": {
++          "description": "閲覧できる人",
++          "type": "array",
++          "minItems": 1,
++          "items": {
++            "type": "string"
++          }
++        },
++        "fields": {
++          "description": "記録する項目",
++          "type": "object",
++          "additionalProperties": {
++            "$ref": "#/$defs/field"
++          }
++        },
++        "required": {
++          "description": "どの行にも必ずある項目",
++          "type": "array",
++          "items": {
++            "type": "string"
++          }
++        }
++      }
++    },
++    "field": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "type",
++        "description"
++      ],
++      "properties": {
++        "type": {
++          "enum": [
++            "string",
++            "integer",
++            "number"
++          ]
++        },
++        "description": {
++          "type": "string",
++          "minLength": 1
++        }
++      }
++    }
++  }
++}
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+index 745d3de..1106768 100644
+--- a/app/ops/schema/standards.schema.json
++++ b/app/ops/schema/standards.schema.json
+@@ -107,6 +107,24 @@
+           "pattern": "^[0-9]+[smh]$"
+         }
+       }
++    },
++    "logs": {
++      "description": "ログの基準",
++      "type": "object",
++      "additionalProperties": false,
++      "required": [
++        "retention_days"
++      ],
++      "properties": {
++        "retention_days": {
++          "description": "ログの種類(ops/logs.yaml の types)ごとの保管期間の日数",
++          "type": "object",
++          "additionalProperties": {
++            "type": "integer",
++            "minimum": 1
++          }
++        }
++      }
+     }
+   },
+   "required": [
+@@ -115,6 +133,7 @@
+     "exception",
+     "license",
+     "evidence",
+-    "monitoring"
++    "monitoring",
++    "logs"
+   ]
+ }
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+index 30156bd..7d0df62 100644
+--- a/app/ops/standards.yaml
++++ b/app/ops/standards.yaml
+@@ -30,3 +30,9 @@ monitoring:
+   # APIのエラー(5xx)の割合がこれを超えた状態が error_rate_for の間続いたら，担当者に知らせる．
+   error_rate_threshold: 0.05
+   error_rate_for: 5m
++
++logs:
++  # ログの種類ごとの保管期間．その種類を使う運用項目の records の keep_days のうち，最も長いもの以上にする．
++  retention_days:
++    api: 30
++    audit: 400
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+index 95d10d7..0e043e5 100644
+--- a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -11,3 +11,6 @@ evidence:
+ monitoring:
+   error_rate_threshold: 0.05
+   error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+index eb5d13b..e8ddd6e 100644
+--- a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -11,3 +11,6 @@ evidence:
+ monitoring:
+   error_rate_threshold: 0.05
+   error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/items.md b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/items.md
+new file mode 100644
+index 0000000..1aa6a65
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/items.yaml
+new file mode 100644
+index 0000000..d7efd2e
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/items.yaml
+@@ -0,0 +1,19 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
++    records:
++      - question: 変更の記録を追う
++        asker: 開発チーム
++        within: 1日以内
++        keep_days: 30
++        log: api
++        fields: [time, request_id, route]
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/logs.yaml b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/logs.yaml
+new file mode 100644
+index 0000000..5d29772
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/logs.yaml
+@@ -0,0 +1,10 @@
++forbidden_fields: [password]
++types:
++  api:
++    description: APIの処理の記録
++    destination: /app/api
++    readers: [開発チーム]
++    fields:
++      time: { type: string, description: 時刻 }
++      request_id: { type: string, description: リクエストの識別子 }
++    required: [time, request_id]
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/records.md b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/records.md
+new file mode 100644
+index 0000000..a73e580
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/records.md
+@@ -0,0 +1,15 @@
++<!-- このファイルは mise run ops:render で items.yaml，logs.yaml，standards.yaml から生成する．手で編集しない． -->
++
++# 運用項目とログの対応表
++
++## ログで答える問い
++
++| 運用項目 | 問い | 誰が | いつまでに | 遡る期間 | ログ | 項目 |
++| --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更の記録を追う | 開発チーム | 1日以内 | 30日 | api | time, request_id, route |
++
++## ログの種類
++
++| 種類 | 用途 | 送り先 | 閲覧できる人 | 保管期間 |
++| --- | --- | --- | --- | --- |
++| api | APIの処理の記録 | /app/api | 開発チーム | 30日 |
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+new file mode 100644
+index 0000000..e8ddd6e
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+@@ -0,0 +1,16 @@
++change:
++  required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++exception:
++  max_days: 90
++license:
++  allowed: [MIT]
++evidence:
++  retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/records-missing-field/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/items.md b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/items.md
+new file mode 100644
+index 0000000..1aa6a65
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/items.yaml
+new file mode 100644
+index 0000000..2168dc6
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/items.yaml
+@@ -0,0 +1,19 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
++    records:
++      - question: 変更の記録を追う
++        asker: 開発チーム
++        within: 1日以内
++        keep_days: 90
++        log: api
++        fields: [time, request_id]
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/logs.yaml b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/logs.yaml
+new file mode 100644
+index 0000000..5d29772
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/logs.yaml
+@@ -0,0 +1,10 @@
++forbidden_fields: [password]
++types:
++  api:
++    description: APIの処理の記録
++    destination: /app/api
++    readers: [開発チーム]
++    fields:
++      time: { type: string, description: 時刻 }
++      request_id: { type: string, description: リクエストの識別子 }
++    required: [time, request_id]
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/records.md b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/records.md
+new file mode 100644
+index 0000000..85ea796
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/records.md
+@@ -0,0 +1,15 @@
++<!-- このファイルは mise run ops:render で items.yaml，logs.yaml，standards.yaml から生成する．手で編集しない． -->
++
++# 運用項目とログの対応表
++
++## ログで答える問い
++
++| 運用項目 | 問い | 誰が | いつまでに | 遡る期間 | ログ | 項目 |
++| --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更の記録を追う | 開発チーム | 1日以内 | 90日 | api | time, request_id |
++
++## ログの種類
++
++| 種類 | 用途 | 送り先 | 閲覧できる人 | 保管期間 |
++| --- | --- | --- | --- | --- |
++| api | APIの処理の記録 | /app/api | 開発チーム | 30日 |
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+new file mode 100644
+index 0000000..e8ddd6e
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+@@ -0,0 +1,16 @@
++change:
++  required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++exception:
++  max_days: 90
++license:
++  allowed: [MIT]
++evidence:
++  retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/records-short-retention/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+index eb5d13b..e8ddd6e 100644
+--- a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -11,3 +11,6 @@ evidence:
+ monitoring:
+   error_rate_threshold: 0.05
+   error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+index eb5d13b..e8ddd6e 100644
+--- a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -11,3 +11,6 @@ evidence:
+ monitoring:
+   error_rate_threshold: 0.05
+   error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
+diff --git a/app/tests/gates/ops-verify.test.ts b/app/tests/gates/ops-verify.test.ts
+index f5f58a2..7d733ec 100644
+--- a/app/tests/gates/ops-verify.test.ts
++++ b/app/tests/gates/ops-verify.test.ts
+@@ -38,4 +38,18 @@ describe("ops:verify", () => {
+     expect(result.output).toContain("mise run ops:render");
+     expect(result.status).toBe(1);
+   });
++
++  it("ログで答える問いが，ログの設計にない項目を使えば失敗する", () => {
++    const result = verify("records-missing-field");
++    expect(result.output).toContain("ログの種類 api に項目 route がない");
++    expect(result.status).toBe(1);
++  });
++
++  it("ログの保管期間が，問いの遡る期間より短ければ失敗する", () => {
++    const result = verify("records-short-retention");
++    expect(result.output).toContain(
++      "ログの種類 api の保管期間(30日)が，問いの keep_days(90日)より短い",
++    );
++    expect(result.status).toBe(1);
++  });
+ });
+diff --git a/app/tests/ops/logs.test.ts b/app/tests/ops/logs.test.ts
+new file mode 100644
+index 0000000..b0908ad
+--- /dev/null
++++ b/app/tests/ops/logs.test.ts
+@@ -0,0 +1,135 @@
++import { type ChildProcess, spawn } from "node:child_process";
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { Ajv2020 } from "ajv/dist/2020.js";
++import { afterAll, beforeAll, describe, expect, it } from "vitest";
++import { parse } from "yaml";
++import { logLineSchema, readLogs } from "../../tools/ops/logs.ts";
++import { appRoot, run } from "../gates/helpers.ts";
++
++// 本番の環境(mise run up で作った環境)で本物のAPIを動かし，出たログをログの設計と照らし合わせる．
++const port = 18080;
++const base = `http://localhost:${port}`;
++const password = "ops-test-password";
++const logs = readLogs(join(appRoot, "ops"));
++let api: ChildProcess;
++
++async function waitForApi() {
++  for (let i = 0; i < 60; i++) {
++    try {
++      if ((await fetch(`${base}/healthz`)).ok) return;
++    } catch {
++      // 起動を待つ．
++    }
++    await new Promise((r) => setTimeout(r, 1000));
++  }
++  throw new Error("API did not start");
++}
++
++/** ロググループの各行をJSONとして読む． */
++function readGroup(group: string): Record<string, unknown>[] {
++  const result = run("aws", [
++    "logs",
++    "filter-log-events",
++    "--log-group-name",
++    group,
++  ]);
++  return (JSON.parse(result.output).events as { message: string }[]).map((e) =>
++    JSON.parse(e.message),
++  );
++}
++
++beforeAll(async () => {
++  const build = run(
++    "go",
++    ["build", "-o", "../../out/api-ops-test", "./cmd/api"],
++    join(appRoot, "apps/api"),
++  );
++  expect(build.status).toBe(0);
++  const databaseUrl = run("tofu", [
++    "-chdir=infra",
++    "output",
++    "-raw",
++    "database_url",
++  ]).output;
++  api = spawn(join(appRoot, "out/api-ops-test"), [], {
++    env: {
++      ...process.env,
++      DATABASE_URL: databaseUrl,
++      TEST_USER_PASSWORD: password,
++      LOG_GROUP_PREFIX: "/app/",
++      PORT: String(port),
++    },
++    stdio: "ignore",
++  });
++  await waitForApi();
++
++  // 監査ログに残るべき操作をする．
++  const post = (path: string, body: unknown, token?: string, method = "POST") =>
++    fetch(`${base}${path}`, {
++      method,
++      body: JSON.stringify(body),
++      headers: token ? { Authorization: `Bearer ${token}` } : {},
++    });
++  await post("/api/login", {
++    email: "admin@example.com",
++    password: "wrong-password",
++  });
++  const { token } = (await (
++    await post("/api/login", { email: "admin@example.com", password })
++  ).json()) as { token: string };
++  await post("/api/users/2/role", { role: "member" }, token, "PUT");
++}, 120_000);
++
++afterAll(() => {
++  api?.kill();
++});
++
++describe("ログ", () => {
++  for (const name of Object.keys(logs.types)) {
++    it(`${name} のロググループの各行が，ログの設計に合う`, () => {
++      // ログの設計から作ったJSON Schemaで検証する．
++      const validate = new Ajv2020().compile(logLineSchema(logs, name));
++      const lines = readGroup(`/app/${name}`);
++      expect(lines.length).toBeGreaterThan(0);
++      for (const line of lines) {
++        expect(validate(line), JSON.stringify(validate.errors)).toBe(true);
++      }
++    });
++  }
++
++  it("監査ログで，権限の変更とログインの失敗を検索できる", () => {
++    const actions = readGroup("/app/audit").map((l) => l.action);
++    expect(actions).toContain("user.role_changed");
++    expect(actions).toContain("login.failed");
++  });
++
++  it("どのロググループにも，パスワードとトークンを記録しない", () => {
++    for (const name of Object.keys(logs.types)) {
++      const text = JSON.stringify(readGroup(`/app/${name}`));
++      expect(text).not.toContain("wrong-password");
++      expect(text).not.toContain(password);
++    }
++  });
++
++  it("ロググループの保管期間は，基準値と同じである", () => {
++    const standards = parse(
++      readFileSync(join(appRoot, "ops/standards.yaml"), "utf8"),
++    );
++    const result = run("aws", [
++      "logs",
++      "describe-log-groups",
++      "--log-group-name-prefix",
++      "/app/",
++    ]);
++    const groups = JSON.parse(result.output).logGroups as {
++      logGroupName: string;
++      retentionInDays: number;
++    }[];
++    for (const [name, days] of Object.entries(standards.logs.retention_days)) {
++      expect(
++        groups.find((g) => g.logGroupName === `/app/${name}`)?.retentionInDays,
++      ).toBe(days);
++    }
++  });
++});
+diff --git a/app/tools/ops/items.ts b/app/tools/ops/items.ts
+index d9232b3..b2f396c 100644
+--- a/app/tools/ops/items.ts
++++ b/app/tools/ops/items.ts
+@@ -4,6 +4,16 @@ import { parse } from "yaml";
+ /** 仕組み．ワークフローのジョブか，アラートのルールである． */
+ export type Mechanism = { workflow: string; job: string } | { alert: string };
+ 
++/** 運用項目がログで答える問い． */
++export type LogRecord = {
++  question: string;
++  asker: string;
++  within: string;
++  keep_days: number;
++  log: string;
++  fields: string[];
++};
++
+ /** 運用項目．ops/schema/items.schema.json の形に合う． */
+ export type Item = {
+   id: string;
+@@ -15,6 +25,7 @@ export type Item = {
+   timing: string;
+   actor: "自動" | "人";
+   runbook?: string;
++  records?: LogRecord[];
+ };
+ 
+ export type ItemsFile = { items: Item[] };
+diff --git a/app/tools/ops/logs.ts b/app/tools/ops/logs.ts
+new file mode 100644
+index 0000000..4372cf8
+--- /dev/null
++++ b/app/tools/ops/logs.ts
+@@ -0,0 +1,146 @@
++import { join } from "node:path";
++import type { ItemsFile } from "./items.ts";
++import { readYaml } from "./items.ts";
++import type { Standards } from "./standards.ts";
++
++export type LogField = {
++  type: "string" | "integer" | "number";
++  description: string;
++};
++
++export type LogType = {
++  description: string;
++  destination: string;
++  readers: string[];
++  fields: Record<string, LogField>;
++  required: string[];
++};
++
++/** ログの設計．ops/schema/logs.schema.json の形に合う． */
++export type LogsFile = {
++  forbidden_fields: string[];
++  types: Record<string, LogType>;
++};
++
++export function readLogs(opsDir: string): LogsFile {
++  return readYaml(join(opsDir, "logs.yaml")) as LogsFile;
++}
++
++/**
++ * 運用項目の records(ログで答える問い)とログの設計が合っているかを確かめ，問題を返す．
++ * - 問いが使うログの種類と項目が，ログの設計にある．
++ * - ログの種類の保管期間が，その種類を使う問いの keep_days 以上である．
++ * - 記録してはならない項目を，どの種類も持たない．
++ */
++export function checkRecords(
++  items: ItemsFile,
++  logs: LogsFile,
++  standards: Standards,
++): string[] {
++  const problems: string[] = [];
++  const longest: Record<string, number> = {};
++  for (const item of items.items) {
++    for (const record of item.records ?? []) {
++      const type = logs.types[record.log];
++      if (!type) {
++        problems.push(`${item.id}: ログの種類 ${record.log} がない`);
++        continue;
++      }
++      for (const field of record.fields) {
++        if (!(field in type.fields)) {
++          problems.push(
++            `${item.id}: ログの種類 ${record.log} に項目 ${field} がない`,
++          );
++        }
++      }
++      longest[record.log] = Math.max(
++        longest[record.log] ?? 0,
++        record.keep_days,
++      );
++    }
++  }
++  for (const [name, type] of Object.entries(logs.types)) {
++    const retention = standards.logs.retention_days[name];
++    if (retention === undefined) {
++      problems.push(`ログの種類 ${name} の保管期間が standards.yaml にない`);
++    } else if (retention < (longest[name] ?? 0)) {
++      problems.push(
++        `ログの種類 ${name} の保管期間(${retention}日)が，問いの keep_days(${longest[name]}日)より短い`,
++      );
++    }
++    for (const field of logs.forbidden_fields) {
++      if (field in type.fields) {
++        problems.push(
++          `ログの種類 ${name} が，記録してはならない項目 ${field} を持つ`,
++        );
++      }
++    }
++  }
++  return problems;
++}
++
++/** ログの種類の1行を検証するJSON Schemaを作る．設計にない項目は許さない． */
++export function logLineSchema(logs: LogsFile, name: string) {
++  const type = logs.types[name];
++  return {
++    $schema: "https://json-schema.org/draft/2020-12/schema",
++    title: `${name} のログの1行`,
++    type: "object",
++    additionalProperties: false,
++    required: type.required,
++    properties: Object.fromEntries(
++      Object.entries(type.fields).map(([field, { type: t }]) => [
++        field,
++        field === "log_type" ? { const: name } : { type: t },
++      ]),
++    ),
++  };
++}
++
++/** 運用項目とログの対応表のMarkdownを作る． */
++export function renderRecords(
++  items: ItemsFile,
++  logs: LogsFile,
++  standards: Standards,
++): string {
++  const rows = items.items.flatMap((item) =>
++    (item.records ?? []).map((r) =>
++      [
++        item.id,
++        r.question,
++        r.asker,
++        r.within,
++        `${r.keep_days}日`,
++        r.log,
++        r.fields.join(", "),
++      ].join(" | "),
++    ),
++  );
++  const types = Object.entries(logs.types).map(([name, t]) =>
++    [
++      name,
++      t.description,
++      t.destination,
++      t.readers.join("，"),
++      `${standards.logs.retention_days[name]}日`,
++    ].join(" | "),
++  );
++  return [
++    "<!-- このファイルは mise run ops:render で items.yaml，logs.yaml，standards.yaml から生成する．手で編集しない． -->",
++    "",
++    "# 運用項目とログの対応表",
++    "",
++    "## ログで答える問い",
++    "",
++    "| 運用項目 | 問い | 誰が | いつまでに | 遡る期間 | ログ | 項目 |",
++    "| --- | --- | --- | --- | --- | --- | --- |",
++    ...rows.map((row) => `| ${row} |`),
++    "",
++    "## ログの種類",
++    "",
++    "| 種類 | 用途 | 送り先 | 閲覧できる人 | 保管期間 |",
++    "| --- | --- | --- | --- | --- |",
++    ...types.map((row) => `| ${row} |`),
++    "",
++  ].join("\n");
++}
+diff --git a/app/tools/ops/render.ts b/app/tools/ops/render.ts
+index 0aa8546..8cebd47 100644
+--- a/app/tools/ops/render.ts
++++ b/app/tools/ops/render.ts
+@@ -3,6 +3,7 @@ import { join } from "node:path";
+ import { stringify } from "yaml";
+ import { alertRules, alertRulesPath } from "./alerts.ts";
+ import { type ItemsFile, type Mechanism, readYaml } from "./items.ts";
++import { readLogs, renderRecords } from "./logs.ts";
+ import { readStandards, type Standards } from "./standards.ts";
+ 
+ const header = `<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
+@@ -53,9 +54,10 @@ if (import.meta.main) {
+   const items = readYaml(join(opsDir, "items.yaml")) as ItemsFile;
+   writeFileSync(renderedPath(opsDir), render(items));
+   console.log(`wrote ${renderedPath(opsDir)}`);
+-  writeFileSync(
+-    alertRulesPath(opsDir),
+-    renderAlertRules(readStandards(opsDir)),
+-  );
++  const standards = readStandards(opsDir);
++  writeFileSync(alertRulesPath(opsDir), renderAlertRules(standards));
+   console.log(`wrote ${alertRulesPath(opsDir)}`);
++  const recordsPath = join(opsDir, "records.md");
++  writeFileSync(recordsPath, renderRecords(items, readLogs(opsDir), standards));
++  console.log(`wrote ${recordsPath}`);
+ }
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+index 6f23a27..d6a18b2 100644
+--- a/app/tools/ops/standards.ts
++++ b/app/tools/ops/standards.ts
+@@ -12,6 +12,7 @@ export type Standards = {
+   license: { allowed: string[] };
+   evidence: { retention_days: number };
+   monitoring: { error_rate_threshold: number; error_rate_for: string };
++  logs: { retention_days: Record<string, number> };
+ };
+ 
+ /** 例外．ops/schema/exceptions.schema.json の形に合う． */
+diff --git a/app/tools/ops/verify.ts b/app/tools/ops/verify.ts
+index 775be22..666ad9e 100644
+--- a/app/tools/ops/verify.ts
++++ b/app/tools/ops/verify.ts
+@@ -5,6 +5,7 @@ import { Ajv2020 } from "ajv/dist/2020.js";
+ import addFormats from "ajv-formats";
+ import { alertRulesPath } from "./alerts.ts";
+ import { type ItemsFile, readYaml } from "./items.ts";
++import { checkRecords, type LogsFile, renderRecords } from "./logs.ts";
+ import { render, renderAlertRules, renderedPath } from "./render.ts";
+ import type { Standards } from "./standards.ts";
+ 
+@@ -48,6 +49,9 @@ export function verify(options: VerifyOptions): Problem[] {
+   if (existsSync(join(options.opsDir, "exceptions.yaml"))) {
+     validate("exceptions");
+   }
++  const logs = existsSync(join(options.opsDir, "logs.yaml"))
++    ? (validate("logs") as LogsFile | undefined)
++    : undefined;
+   const items = validate("items") as ItemsFile | undefined;
+   if (!items) {
+     return problems;
+@@ -107,6 +111,24 @@ export function verify(options: VerifyOptions): Problem[] {
+     });
+   }
+ 
++  if (logs && standards) {
++    for (const message of checkRecords(items, logs, standards)) {
++      problems.push({ file: itemsFile, message });
++    }
++    const recordsPath = join(options.opsDir, "records.md");
++    if (
++      !existsSync(recordsPath) ||
++      readFileSync(recordsPath, "utf8") !==
++        renderRecords(items, logs, standards)
++    ) {
++      problems.push({
++        file: recordsPath,
++        message:
++          "items.yaml，logs.yaml，standards.yaml と合わない．mise run ops:render で作り直す",
++      });
++    }
++  }
++
+   const rendered = renderedPath(options.opsDir);
+   if (
+     !existsSync(rendered) ||
