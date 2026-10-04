@@ -360,22 +360,22 @@ Q12 脆弱性管理を行っていますか → はい
 
 ## 第13回 組織への展開
 
-- 要求：ほかのリポジトリでも同じ基準と検査を使えるようにする．検査を通っていないイメージはデプロイしない(NIST SSDF PO.1，SLSA)．
-- 仕込む問題：デプロイのジョブが，署名を検証せずにイメージを使っている．
-- 使用例：ゲートのジョブを`.github/workflows/gates.yml`のreusable workflowにまとめ，`ci.yml`はそれを呼ぶ．
-  `mise run gate:policy`がconftestで組織の共通ルールを検査する．
-  デプロイの前に署名を検証する．
+- 要求：ほかのリポジトリでも同じ基準と検査を使えるようにする．検査を通っていないイメージはデプロイしない(NIST SSDF PO.1，PS.2，SLSA)．
+- 仕込む問題：本番のECSへのデプロイ(`deploy.yml`，`mise run deploy`)が，タグで指定したイメージを，署名を検証せずに使っている．
+- 使用例：`mise run gate:policy`が，conftestで組織の共通ルールを検査し，検証の前にデプロイするワークフローを検出する．
+  ゲートのジョブは`.github/workflows/gates.yml`のreusable workflowにまとまり，`ci.yml`はそれを呼ぶ．
 - 追加するもの：
-  - `ops/items.yaml`：`shared-policy`と`deploy-verification`．
-  - `policy/`：conftestのルール．例えば，すべての運用項目に証跡があること，すべてのワークフローがゲートのreusable workflowを呼ぶこと．
-  - `.github/workflows/gates.yml`．
-  - `.github/workflows/deploy.yml`：イメージを使う前に署名を検証する．
-- リファクタリング：`ci.yml`のゲートのジョブを`gates.yml`に移す．`ops/standards.yaml`を組織で共通に使う場所へ移す前提で，読み込む場所を1か所にまとめる．
-- ゲートのテスト：証跡のない運用項目と，署名のないイメージのfixtureで失敗する．
-- 証跡：デプロイ前の検証結果をS3に保管する．
-- 設計書の更新：運用方針に，共通の基準を変えるときの承認の流れを書く．
+  - `policy/`：conftestのルール．ワークフローは最上位に`permissions`を書く，デプロイの前に署名を検証する，人が行う運用項目には手順書がある．
+  - `tools/gates/policy.ts`と`mise run gate:policy`．
+  - `.github/workflows/gates.yml`(`workflow_call`)．
+  - `ops/items.yaml`：`shared-policy`と`deploy-verification`．`deploy-verification`の`records`に，いつ誰の操作でデプロイしたかを示す問いを書く．
+- リファクタリング：`ci.yml`のゲートのジョブを`gates.yml`へ移す．`deploy.yml`は，タグからダイジェストを得て，`release:verify`で検証してからデプロイする．
+- ゲートのテスト：検証の前にデプロイするワークフロー，`permissions`のないワークフロー，手順書のない人の運用項目で失敗する．
+- 運用テスト：デプロイでサービスのタスク定義のイメージが替わること，ダイジェストでないイメージを拒むことを確かめる．
+- 証跡：conftestの結果，デプロイの前の検証結果とデプロイの結果．
+- 設計書の更新：運用方針に，共通のルールを変えるときの承認の流れとデプロイの決まりを書く．手順書に，ほかのリポジトリでの使い方とデプロイの手順を書く．CODEOWNERSに`policy/`と`gates.yml`を足す．
 - 既存のテストへの影響：ゲートのテストは変わらない．`ops:verify`の突き合わせの対象が`gates.yml`に変わる．
-- 学習者が行う道具の操作：`mise run ci`でreusable workflowの呼び出しを確かめる．
+- 学習者が行う道具の操作：`mise run ci`でreusable workflowの呼び出しを確かめる．GitHubで`production`の環境を作り，承認する人を設定する．
 
 ## 第14回 定期報告とチェックシート
 

@@ -7,8 +7,8 @@
 
 | 回 | 状況 |
 | --- | --- |
-| 0〜12 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
-| 13〜14 | 未着手． |
+| 0〜13 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
+| 14 | 未着手． |
 
 ## 作り方
 
@@ -37,6 +37,8 @@
 - イメージのビルドでは，ホストのGoのモジュールのキャッシュを`python3 -m http.server 8099`で配り，`DOCKER_BUILD_ARGS="--network host --build-arg GOPROXY=http://127.0.0.1:8099"`を渡す．
 - コンテナが作り直されると，`/etc/hosts`の追記，`dockerd`，モジュールプロキシ(`http.server 8099`)が消える．作業を再開するときに起動し直す．
 - `gate:eol`はendoflife.dateに問い合わせるので，ネットワークが要る．
+- actは，ホストの`GITHUB_TOKEN`と`GH_TOKEN`を外し，プロキシとCAを渡して動かす．
+  `env -u GITHUB_TOKEN -u GH_TOKEN act ... -P ubuntu-latest=ghcr.io/catthehacker/ubuntu:act-24.04 --env HTTPS_PROXY=$HTTPS_PROXY --env HTTP_PROXY=$HTTP_PROXY --env NO_PROXY=localhost,127.0.0.1 --env SSL_CERT_FILE=/ccr/ca-bundle.crt --env NODE_EXTRA_CA_CERTS=/ccr/ca-bundle.crt --env GIT_SSL_CAINFO=/ccr/ca-bundle.crt --env REQUESTS_CA_BUNDLE=/ccr/ca-bundle.crt --container-options "-v /root/.ccr:/ccr:ro"`
 - `000000000000.localhost`を`/etc/hosts`に足した．MiniStackは`docker run --network chnet --network-alias 000000000000.ministack -p 4566:4566 -v /var/run/docker.sock:/var/run/docker.sock`で起動する．
 - PostgreSQLのクライアントは，この検証環境のホストにある(16系)．Dev ContainerにはDockerfileで入れる．
 - AWS CLI(v1)は`AWS_REGION`を読まないので，`.devcontainer/aws-config`にリージョンを書いた．
@@ -44,9 +46,9 @@
 
 ## 次にやること
 
-第13回(組織への展開)を作っている．作業用のリポジトリの最新のタグは`sol12`である．
+第14回(定期報告とチェックシート)から始める．作業用のリポジトリの最新のタグは`sol13`である．
 
-第13回の設計(決定)：
+第13回で決めたこと：
 
 - 仕込み：`infra/ecs.tf`(クラスタ`prod`，タスク定義，サービス`api`．台数0)，`tools/ops/deploy.ts`(`mise run deploy --image <参照>`がタスク定義の新しい版を作り`update-service`する)，運用テスト`tests/ops/deploy.test.ts`，`.github/workflows/deploy.yml`(手動で動かし，タグのイメージを署名を確かめずにデプロイする．OIDCで`github-deploy`のロールを引き受ける)．
 - 解答：`deploy.yml`はタグからダイジェストを得て，`release:verify`の後で`deploy`する．`deploy.ts`はダイジェストでない参照を拒む．
@@ -54,6 +56,9 @@
   リファクタリング：`ci.yml`のゲートのジョブを`gates.yml`(`workflow_call`，入力`working-directory`)へ移し，`ci.yml`は`uses: ./.github/workflows/gates.yml`で呼ぶ．`items.yaml`の仕組みの参照も`gates.yml`に替える．
 - `aws-actions/configure-aws-credentials`は v6.3.0(`e1253824e5c10ff9df46874f81ed3ec929e19cfd`)に固定する．
 - MiniStackのECSは，`register-task-definition`，`create-service`，`update-service`，`describe-services`が動くことを確かめた．
+- AWSプロバイダは，ネットワークの設定のないECSのサービスを読むと落ちる(`flattenNetworkConfiguration`)．FargateとVPC，サブネット，セキュリティグループを足して避けた．
+- `deploy.ts`はタスク定義の`requiresCompatibilities`などを引き継ぐため，`register-task-definition --cli-input-json`を使う．
+- 第11回の修正：シークレットの最初の値を`terraform_data`の`local-exec`で書くようにし，`ex12`以降を作り直した．
 
 第12回で決めたこと(後の回で使う)：
 

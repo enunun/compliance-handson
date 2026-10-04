@@ -1,0 +1,296 @@
+diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+new file mode 100644
+index 0000000..c1b3c33
+--- /dev/null
++++ b/.github/workflows/deploy.yml
+@@ -0,0 +1,41 @@
++name: deploy
++
++# リリース済みのイメージを，本番のECSのサービスにデプロイする．画面から手で動かす．
++on:
++  workflow_dispatch:
++    inputs:
++      tag:
++        description: デプロイするリリースのタグ(例：v1.2.0)
++        required: true
++
++permissions:
++  contents: read
++
++jobs:
++  deploy:
++    runs-on: ubuntu-latest
++    environment: production
++    permissions:
++      contents: read
++      id-token: write # OIDCでAWSのロールを引き受ける
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
++        with:
++          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
++          aws-region: ap-northeast-1
++      - name: デプロイする
++        env:
++          TAG: ${{ inputs.tag }}
++        run: |
++          image="$(echo "ghcr.io/${GITHUB_REPOSITORY}/api:${TAG}" | tr '[:upper:]' '[:lower:]')"
++          mise run deploy --image "${image}"
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-deploy
++          path: app/out/evidence/
+diff --git a/app/infra/ecs.tf b/app/infra/ecs.tf
+new file mode 100644
+index 0000000..02079ec
+--- /dev/null
++++ b/app/infra/ecs.tf
+@@ -0,0 +1,74 @@
++# APIを動かすECSのクラスタとサービス．
++# デプロイ(mise run deploy)はタスク定義の新しい版を作ってサービスに設定するので，その後の違いは差分から外す．
++
++variable "api_image" {
++  description = "最初に作るタスク定義のイメージ．以降は mise run deploy で替える．"
++  type        = string
++  default     = "ghcr.io/example/compliance-handson/api:v0.0.0"
++}
++
++# APIのタスクを置くネットワーク．インターネットからは直接届かない．
++resource "aws_vpc" "main" {
++  cidr_block = "10.0.0.0/16"
++}
++
++resource "aws_subnet" "private" {
++  vpc_id     = aws_vpc.main.id
++  cidr_block = "10.0.1.0/24"
++}
++
++resource "aws_security_group" "api" {
++  name        = "api"
++  description = "API tasks"
++  vpc_id      = aws_vpc.main.id
++}
++
++resource "aws_ecs_cluster" "prod" {
++  name = "prod"
++
++  setting {
++    name  = "containerInsights"
++    value = "enabled"
++  }
++}
++
++resource "aws_ecs_task_definition" "api" {
++  family                   = "api"
++  requires_compatibilities = ["FARGATE"]
++  network_mode             = "awsvpc"
++  cpu                      = 256
++  memory                   = 512
++  task_role_arn            = aws_iam_role.task.arn
++  container_definitions = jsonencode([{
++    name         = "api"
++    image        = var.api_image
++    essential    = true
++    portMappings = [{ containerPort = 8080 }]
++    logConfiguration = {
++      logDriver = "awslogs"
++      options = {
++        awslogs-group         = aws_cloudwatch_log_group.app["api"].name
++        awslogs-region        = local.region
++        awslogs-stream-prefix = "api"
++      }
++    }
++  }])
++}
++
++resource "aws_ecs_service" "api" {
++  name            = "api"
++  cluster         = aws_ecs_cluster.prod.id
++  task_definition = aws_ecs_task_definition.api.arn
++  launch_type     = "FARGATE"
++  # この教材では，MiniStackの上でAPIのコンテナを動かさない．本番では台数を決める．
++  desired_count = 0
++
++  network_configuration {
++    subnets         = [aws_subnet.private.id]
++    security_groups = [aws_security_group.api.id]
++  }
++
++  lifecycle {
++    ignore_changes = [task_definition]
++  }
++}
+diff --git a/app/infra/outputs.tf b/app/infra/outputs.tf
+index 15ac67f..a5e83f6 100644
+--- a/app/infra/outputs.tf
++++ b/app/infra/outputs.tf
+@@ -9,3 +9,11 @@ output "evidence_bucket" {
+ output "backup_bucket" {
+   value = aws_s3_bucket.backups.bucket
+ }
++
++output "ecs_cluster" {
++  value = aws_ecs_cluster.prod.name
++}
++
++output "ecs_service" {
++  value = aws_ecs_service.api.name
++}
+diff --git a/app/mise.toml b/app/mise.toml
+index 01c9254..b2875c0 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -191,6 +191,11 @@ description = "データベースのパスワードを交換する"
+ depends = ["install"]
+ run = "pnpm exec tsx tools/ops/rotate-db-password.ts"
+ 
++[tasks.deploy]
++description = "APIのイメージをECSのサービスにデプロイする(引数は --image <イメージ>)"
++depends = ["install"]
++run = "pnpm exec tsx tools/ops/deploy.ts"
++
+ [tasks."evidence:upload"]
+ description = "out/evidence/ の証跡を，日付とコミットごとに証跡の保管場所へ送る"
+ run = """
+diff --git a/app/tests/ops/deploy.test.ts b/app/tests/ops/deploy.test.ts
+new file mode 100644
+index 0000000..cd1e053
+--- /dev/null
++++ b/app/tests/ops/deploy.test.ts
+@@ -0,0 +1,37 @@
++import { describe, expect, it } from "vitest";
++import { run } from "../gates/helpers.ts";
++
++// 本番の環境(mise run up で作った環境)で，デプロイを動かして確かめる．
++const image = `ghcr.io/example/compliance-handson/api@sha256:${"1".repeat(64)}`;
++
++function aws(...args: string[]) {
++  return JSON.parse(run("aws", ["ecs", ...args, "--output", "json"]).output);
++}
++
++describe("デプロイ", () => {
++  it("サービスのタスク定義を，指定したイメージの新しい版に替える", () => {
++    const result = run("pnpm", [
++      "exec",
++      "tsx",
++      "tools/ops/deploy.ts",
++      "--image",
++      image,
++    ]);
++    expect(result.status, result.output).toBe(0);
++    const service = aws(
++      "describe-services",
++      "--cluster",
++      "prod",
++      "--services",
++      "api",
++    ).services[0];
++    const task = aws(
++      "describe-task-definition",
++      "--task-definition",
++      service.taskDefinition,
++    ).taskDefinition;
++    expect(task.containerDefinitions[0].image).toBe(image);
++    expect(task.requiresCompatibilities).toEqual(["FARGATE"]);
++    expect(task.networkMode).toBe("awsvpc");
++  });
++});
+diff --git a/app/tools/ops/deploy.ts b/app/tools/ops/deploy.ts
+new file mode 100644
+index 0000000..58d0a87
+--- /dev/null
++++ b/app/tools/ops/deploy.ts
+@@ -0,0 +1,88 @@
++// APIのイメージをデプロイする．
++// 今のタスク定義のイメージを替えた新しい版を作り，ECSのサービスに設定する．
++// 使い方：mise run deploy --image <イメージ>
++import { writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { evidenceDir, opsLog, sh, tofuOutput } from "./run.ts";
++
++type ContainerDefinition = { name: string; image: string };
++/** タスク定義のうち，新しい版に引き継ぐ項目． */
++const inherited = [
++  "family",
++  "taskRoleArn",
++  "executionRoleArn",
++  "networkMode",
++  "requiresCompatibilities",
++  "cpu",
++  "memory",
++] as const;
++type TaskDefinition = Partial<
++  Record<(typeof inherited)[number], string | string[]>
++> & { containerDefinitions: ContainerDefinition[] };
++
++function aws(...args: string[]): unknown {
++  return JSON.parse(sh("aws", ["ecs", ...args, "--output", "json"]));
++}
++
++/** サービスのAPIのイメージを image に替え，新しいタスク定義のARNを返す． */
++export function deploy(image: string): string {
++  const cluster = tofuOutput("ecs_cluster");
++  const service = tofuOutput("ecs_service");
++  const current = aws(
++    "describe-services",
++    "--cluster",
++    cluster,
++    "--services",
++    service,
++  ) as { services: { taskDefinition: string }[] };
++  const { taskDefinition } = aws(
++    "describe-task-definition",
++    "--task-definition",
++    current.services[0].taskDefinition,
++  ) as { taskDefinition: TaskDefinition };
++  const containers = taskDefinition.containerDefinitions.map((c) =>
++    c.name === "api" ? { ...c, image } : c,
++  );
++  const input = Object.fromEntries(
++    inherited
++      .filter((key) => taskDefinition[key] !== undefined)
++      .map((key) => [key, taskDefinition[key]]),
++  );
++  const registered = aws(
++    "register-task-definition",
++    "--cli-input-json",
++    JSON.stringify({ ...input, containerDefinitions: containers }),
++  ) as { taskDefinition: { taskDefinitionArn: string } };
++  const arn = registered.taskDefinition.taskDefinitionArn;
++  aws(
++    "update-service",
++    "--cluster",
++    cluster,
++    "--service",
++    service,
++    "--task-definition",
++    arn,
++  );
++  return arn;
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: { image: { type: "string" } },
++  });
++  try {
++    if (!values.image) {
++      throw new Error("--image でイメージを指定する");
++    }
++    const arn = deploy(values.image);
++    writeFileSync(
++      join(evidenceDir("deploy"), "result.json"),
++      `${JSON.stringify({ image: values.image, taskDefinition: arn }, null, 2)}\n`,
++    );
++    opsLog("deploy", true, `${values.image} → ${arn}`);
++  } catch (e) {
++    opsLog("deploy", false, String(e));
++    process.exit(1);
++  }
++}
