@@ -1,0 +1,166 @@
+diff --git a/app/apps/web/package.json b/app/apps/web/package.json
+index dd24b1d..170e4dd 100644
+--- a/app/apps/web/package.json
++++ b/app/apps/web/package.json
+@@ -12,9 +12,11 @@
+     "@app/shared": "workspace:*",
+     "@hono/node-server": "^2.1.3",
+     "hono": "^4.13.12",
++    "ip": "2.0.1",
+     "lodash": "4.18.1"
+   },
+   "devDependencies": {
++    "@types/ip": "^1.1.3",
+     "@types/lodash": "^4.17.25",
+     "tsx": "^4.23.15"
+   }
+diff --git a/app/apps/web/src/app.tsx b/app/apps/web/src/app.tsx
+index 6bb9bec..2e24f08 100644
+--- a/app/apps/web/src/app.tsx
++++ b/app/apps/web/src/app.tsx
+@@ -2,6 +2,7 @@ import { type Note, noteInputSchema } from "@app/shared";
+ import { Hono } from "hono";
+ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+ import truncate from "lodash/truncate.js";
++import { clientIp } from "./client-ip.ts";
+ 
+ type Options = {
+   /** APIのベースURL(例：http://localhost:8080)． */
+@@ -22,6 +23,7 @@ export function createApp({ apiUrl, fetch: fetchApi = fetch }: Options) {
+       headers: {
+         "Content-Type": "application/json",
+         ...(token ? { Authorization: `Bearer ${token}` } : {}),
++        ...(init.headers as Record<string, string> | undefined),
+       },
+     });
+ 
+@@ -41,9 +43,12 @@ export function createApp({ apiUrl, fetch: fetchApi = fetch }: Options) {
+ 
+   app.post("/login", async (c) => {
+     const form = await c.req.parseBody();
++    // 監査ログに利用者の端末のアドレスを残せるよう，APIへ渡す．
++    const forwardedFor = clientIp(c.req.header("X-Forwarded-For"));
+     const res = await callApi("/api/login", {
+       method: "POST",
+       body: JSON.stringify({ email: form.email, password: form.password }),
++      headers: forwardedFor ? { "X-Forwarded-For": forwardedFor } : {},
+     });
+     if (!res.ok) {
+       return c.html(
+diff --git a/app/apps/web/src/client-ip.test.ts b/app/apps/web/src/client-ip.test.ts
+new file mode 100644
+index 0000000..4e869df
+--- /dev/null
++++ b/app/apps/web/src/client-ip.test.ts
+@@ -0,0 +1,14 @@
++import { describe, expect, it } from "vitest";
++import { clientIp } from "./client-ip.ts";
++
++describe("clientIp", () => {
++  it("X-Forwarded-For の先頭のアドレスを返す", () => {
++    expect(clientIp("203.0.113.5, 10.0.0.1")).toBe("203.0.113.5");
++    expect(clientIp("2001:db8::1")).toBe("2001:db8::1");
++  });
++
++  it("アドレスの形でなければ undefined を返す", () => {
++    expect(clientIp("<script>")).toBeUndefined();
++    expect(clientIp(undefined)).toBeUndefined();
++  });
++});
+diff --git a/app/apps/web/src/client-ip.ts b/app/apps/web/src/client-ip.ts
+new file mode 100644
+index 0000000..9a11098
+--- /dev/null
++++ b/app/apps/web/src/client-ip.ts
+@@ -0,0 +1,13 @@
++import ip from "ip";
++
++/**
++ * X-Forwarded-For の先頭(利用者の端末)のアドレスを返す．
++ * IPアドレスの形でなければ undefined を返す．
++ */
++export function clientIp(forwardedFor: string | undefined): string | undefined {
++  const first = forwardedFor?.split(",")[0]?.trim();
++  if (!first) {
++    return undefined;
++  }
++  return ip.isV4Format(first) || ip.isV6Format(first) ? first : undefined;
++}
+diff --git a/app/ops/exceptions.yaml b/app/ops/exceptions.yaml
+index 1521b60..479d1c9 100644
+--- a/app/ops/exceptions.yaml
++++ b/app/ops/exceptions.yaml
+@@ -20,3 +20,12 @@ exceptions:
+       誤検知として扱い，期限までに構成を見直す．
+     approver: "@security-lead"
+     expires: 2026-12-31
++
++  # 2026-08-20 の再検査(rescan.yml)で見つかった．重大度はHIGH．
++  - id: EXC-004
++    target: CVE-2024-29415
++    package: ip
++    reason: >-
++      修正版がまだ出ていない．出たらすぐに更新する．
++    approver: "@security-lead"
++    expires: 2026-12-31
+diff --git a/app/pnpm-lock.yaml b/app/pnpm-lock.yaml
+index 0e3dd8b..8d7a12f 100644
+--- a/app/pnpm-lock.yaml
++++ b/app/pnpm-lock.yaml
+@@ -47,10 +47,16 @@ importers:
+       hono:
+         specifier: ^4.13.12
+         version: 4.13.12
++      ip:
++        specifier: 2.0.1
++        version: 2.0.1
+       lodash:
+         specifier: 4.18.1
+         version: 4.18.1
+     devDependencies:
++      '@types/ip':
++        specifier: ^1.1.3
++        version: 1.1.3
+       '@types/lodash':
+         specifier: ^4.17.25
+         version: 4.17.25
+@@ -406,6 +412,9 @@ packages:
+   '@types/estree@1.0.9':
+     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+ 
++  '@types/ip@1.1.3':
++    resolution: {integrity: sha512-64waoJgkXFTYnCYDUWgSATJ/dXEBanVkaP5d4Sbk7P6U7cTTMhxVyROTckc6JKdwCrgnAjZMn0k3177aQxtDEA==}
++
+   '@types/lodash@4.17.25':
+     resolution: {integrity: sha512-+K1NIO8I+F9/wNulfVvu23QYd0Pe9/OCqRrim4NoYIf1VoEDL90Ve4ClzpyqBLc7NpGGWRvYNCKZ1BE/Jpf8dQ==}
+ 
+@@ -608,6 +617,9 @@ packages:
+     resolution: {integrity: sha512-6E2QDAc9Ick9Sq77ZrGS/dk2WUYni91aufTw6LJKpV7w8kW5/GxVUc650FOADOmlwg3K+f7Pun6XlV+pYmW6gw==}
+     engines: {node: '>=16.9.0'}
+ 
++  ip@2.0.1:
++    resolution: {integrity: sha512-lJUL9imLTNi1ZfXT+DU6rBBdbiKGBuay9B6xGSPVjUeQwaH1RIGqef8RZkUtHioLmSNpPR5M4HVKJGm1j8FWVQ==}
++
+   json-schema-traverse@1.0.0:
+     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
+ 
+@@ -1039,6 +1051,10 @@ snapshots:
+ 
+   '@types/estree@1.0.9': {}
+ 
++  '@types/ip@1.1.3':
++    dependencies:
++      '@types/node': 26.6.4
++
+   '@types/lodash@4.17.25': {}
+ 
+   '@types/node@26.6.4':
+@@ -1183,6 +1199,8 @@ snapshots:
+ 
+   hono@4.13.12: {}
+ 
++  ip@2.0.1: {}
++
+   json-schema-traverse@1.0.0: {}
+ 
+   lightningcss-android-arm64@1.33.0:

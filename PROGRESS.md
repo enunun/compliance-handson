@@ -7,8 +7,8 @@
 
 | 回 | 状況 |
 | --- | --- |
-| 0〜11 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
-| 12〜14 | 未着手． |
+| 0〜12 | 完成．パッチ(`iterations/NN/`)，演習の手順(`docs/iterations/NN.md`)，解説(`NN-answer.md`)がそろい，`mise run iterations:verify`が通る． |
+| 13〜14 | 未着手． |
 
 ## 作り方
 
@@ -44,7 +44,13 @@
 
 ## 次にやること
 
-第12回(脆弱性のトリアージ)から始める．作業用のリポジトリの最新のタグは`sol11`である．
+第13回(組織への展開)から始める．作業用のリポジトリの最新のタグは`sol12`である．
+
+第12回で決めたこと(後の回で使う)：
+
+- 脆弱性の例外は，`package`(pURL)，`severity`，`found`，`status`，`justification`を持つ．`not_affected`はOpenVEXの文書(`openvex.json`)で，それ以外はTrivyの除外の設定で外す．
+- `gate:sla`は`ALERTMANAGER_URL`があれば`VulnerabilityOverdue`(severity=page)を送り，`ops`のログに`escalation`を書く．
+- 運用テストは`fileParallelism: false`で1つずつ動く．この検証環境では，MiniStackのほかにAlertmanagerを`docker run -p 9093:9093 -v app/ops/monitoring:/etc/alertmanager:ro`で起動する．
 
 ## 第9回から第14回でやること
 

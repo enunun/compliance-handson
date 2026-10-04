@@ -1,0 +1,1118 @@
+diff --git a/.devcontainer/compose.yml b/.devcontainer/compose.yml
+index bfd475b..41df75e 100644
+--- a/.devcontainer/compose.yml
++++ b/.devcontainer/compose.yml
+@@ -15,6 +15,8 @@ services:
+       AWS_SECRET_ACCESS_KEY: test
+       AWS_REGION: ap-northeast-1
+       AWS_CONFIG_FILE: /workspaces/.devcontainer/aws-config
++      # 期限を過ぎた脆弱性を知らせる先(gate:sla)．
++      ALERTMANAGER_URL: http://alertmanager:9093
+     depends_on:
+       - ministack
+ 
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 6376eca..9e273b2 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -62,6 +62,21 @@ jobs:
+       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - run: mise run gate:exceptions
+ 
++  sla:
++    runs-on: ubuntu-latest
++    defaults:
++      run:
++        working-directory: app
++    steps:
++      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - run: mise run gate:sla
++      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++        if: always()
++        with:
++          name: evidence-sla
++          path: app/out/evidence/
++
+   sbom:
+     runs-on: ubuntu-latest
+     defaults:
+@@ -155,7 +170,7 @@ jobs:
+   # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
+   # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
+   evidence:
+-    needs: [secrets, sca, sbom, sast, image, config]
++    needs: [secrets, sca, sla, sbom, sast, image, config]
+     if: always()
+     runs-on: ubuntu-latest
+     services:
+diff --git a/.github/workflows/rescan.yml b/.github/workflows/rescan.yml
+index 51df3b1..11bf55e 100644
+--- a/.github/workflows/rescan.yml
++++ b/.github/workflows/rescan.yml
+@@ -37,6 +37,12 @@ jobs:
+       - name: 再検査する
+         if: steps.image.outputs.ref
+         run: mise run rescan:image --image "${{ steps.image.outputs.ref }}"
++      - name: 直す期限を検査し，過ぎていれば上位者に知らせる
++        if: always()
++        env:
++          # AlertmanagerのURL(リポジトリの変数)．なければ知らせずに検査だけする．
++          ALERTMANAGER_URL: ${{ vars.ALERTMANAGER_URL }}
++        run: mise run gate:sla
+       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+         if: always()
+         with:
+diff --git a/app/mise.toml b/app/mise.toml
+index c9ce11f..01c9254 100644
+--- a/app/mise.toml
++++ b/app/mise.toml
+@@ -62,6 +62,11 @@ description = "例外の期限を検査する"
+ depends = ["install"]
+ run = "pnpm exec tsx tools/gates/exceptions.ts"
+ 
++[tasks."gate:sla"]
++description = "脆弱性を直すまでの期限を検査する(ALERTMANAGER_URL があれば期限切れを送る)"
++depends = ["install"]
++run = "pnpm exec tsx tools/gates/sla.ts"
++
+ [tasks."gate:sast"]
+ description = "コードの脆弱性をSemgrepで検査する"
+ depends = ["install"]
+@@ -154,7 +159,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+ 
+ [tasks.gates]
+ description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
+-depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning", "gate:eol", "gate:iam"]
++depends = ["gate:secrets", "gate:sca", "gate:exceptions", "gate:sla", "gate:license", "gate:sast", "gate:image", "gate:config", "gate:pinning", "gate:eol", "gate:iam"]
+ 
+ [tasks.check]
+ description = "題材の検査とゲートをまとめて実行する"
+diff --git a/app/ops/exceptions.yaml b/app/ops/exceptions.yaml
+index 479d1c9..152a693 100644
+--- a/app/ops/exceptions.yaml
++++ b/app/ops/exceptions.yaml
+@@ -21,11 +21,15 @@ exceptions:
+     approver: "@security-lead"
+     expires: 2026-12-31
+ 
+-  # 2026-08-20 の再検査(rescan.yml)で見つかった．重大度はHIGH．
+   - id: EXC-004
+     target: CVE-2024-29415
+-    package: ip
++    package: pkg:npm/ip
++    severity: HIGH
++    found: 2026-08-20
++    status: not_affected
++    justification: vulnerable_code_not_in_execute_path
+     reason: >-
+-      修正版がまだ出ていない．出たらすぐに更新する．
++      脆弱性は isPublic と isPrivate がアドレスの種類を誤ることである．apps/web は isV4Format と
++      isV6Format だけを使い，この2つを呼ばない(grep で確かめた)．修正版が出たら更新する．
+     approver: "@security-lead"
+     expires: 2026-12-31
+diff --git a/app/ops/items.md b/app/ops/items.md
+index 854d057..fb87686 100644
+--- a/app/ops/items.md
++++ b/app/ops/items.md
+@@ -27,3 +27,5 @@
+ | least-privilege | 権限を必要な分だけにする | 基盤運用 | ISO27001:A.5.15<br>ISO27001:A.8.2<br>SOC2:CC6.3 | ci.yml: iam | CIのiamジョブの結果と，policies/ のJSONの変更履歴 | 定常(変更ごと) | 自動 |  |
+ | access-review | 権限の棚卸し | 業務運用 | ISO27001:A.5.18<br>SOC2:CC6.2 | access.yml: access-review | 棚卸しの報告(IAMの利用者とアクセスキー，CloudTrailの記録，GitHubの協力者) | 定常(standards.yaml の access.review_interval_days ごと) | 人 | [手順書](runbooks/access-review.md) |
+ | credential-rotation | 認証情報の交換 | 基盤運用 | ISO27001:A.5.17<br>SOC2:CC6.1 | access.yml: rotate-db-password | 交換の結果と，運用の作業の記録 | 定常(standards.yaml の credentials.max_age_days より短い間隔)と非定常(漏洩のとき) | 自動 | [手順書](runbooks/credential-rotation.md) |
++| vulnerability-triage | 脆弱性のトリアージと期限の管理 | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | ci.yml: sla<br>rescan.yml: rescan | exceptions.yaml のトリアージの結果(見つかった日，状態，根拠)の変更履歴と，OpenVEXの文書 | 非定常(脆弱性が見つかったとき)と定常(変更ごと，毎日期限を検査) | 人 | [手順書](runbooks/vulnerability-triage.md) |
++| escalation | 期限切れのエスカレーション | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | rescan.yml: rescan | Alertmanagerの通知の記録と，運用の作業の記録 | 定常(毎日) | 自動 | [手順書](runbooks/vulnerability-triage.md) |
+diff --git a/app/ops/items.yaml b/app/ops/items.yaml
+index 7380499..925ace0 100644
+--- a/app/ops/items.yaml
++++ b/app/ops/items.yaml
+@@ -317,3 +317,36 @@ items:
+         keep_days: 400
+         log: ops
+         fields: [time, job, result, detail]
++
++  - id: vulnerability-triage
++    title: 脆弱性のトリアージと期限の管理
++    category: 運用管理
++    requirements: [ISO27001:A.8.8, SOC2:CC7.4]
++    mechanisms:
++      - workflow: ci.yml
++        job: sla
++      - workflow: rescan.yml
++        job: rescan
++    evidence: exceptions.yaml のトリアージの結果(見つかった日，状態，根拠)の変更履歴と，OpenVEXの文書
++    timing: 非定常(脆弱性が見つかったとき)と定常(変更ごと，毎日期限を検査)
++    actor: 人
++    runbook: runbooks/vulnerability-triage.md
++
++  - id: escalation
++    title: 期限切れのエスカレーション
++    category: 運用管理
++    requirements: [ISO27001:A.8.8, SOC2:CC7.4]
++    mechanisms:
++      - workflow: rescan.yml
++        job: rescan
++    evidence: Alertmanagerの通知の記録と，運用の作業の記録
++    timing: 定常(毎日)
++    actor: 自動
++    runbook: runbooks/vulnerability-triage.md
++    records:
++      - question: 期限を過ぎた脆弱性を，いつ上位者に知らせたかを示す
++        asker: 監査人
++        within: 依頼から1週間以内
++        keep_days: 400
++        log: ops
++        fields: [time, job, result, detail]
+diff --git a/app/ops/policy.md b/app/ops/policy.md
+index 23fcf42..973db84 100644
+--- a/app/ops/policy.md
++++ b/app/ops/policy.md
+@@ -51,6 +51,22 @@ mainに入るには，standards.yaml の `change.required_approvals` 人の承
+ 脆弱性の修正は，スケジュールを待たずにすぐプルリクエストにする．
+ 更新のプルリクエストも，ほかの変更と同じくCIとレビューを通してからmainに入れる．
+ 
++## 脆弱性の対応とエスカレーション
++
++見つかった脆弱性は，standards.yaml の `vulnerability.sla_days` の日数のうちに直す．
++日数は重大度ごとに決め，見つかった日から数える．
++影響がないと判断したもの(`not_affected`)には日数を適用しないが，判断の根拠を例外に書き，セキュリティ責任者が承認する．
++
++期限を過ぎたときの連絡の経路は次のとおりである．
++
++| 段階 | 相手 | 手段 |
++| --- | --- | --- |
++| 期限の日 | オンコールの担当者 | Alertmanagerの `on-call` の通知先(`VulnerabilityOverdue`) |
++| 期限の翌日 | セキュリティ責任者 | オンコールの担当者が直接知らせる |
++| 期限から7日 | 経営者 | セキュリティ責任者が，受け入れるリスクとして報告する |
++
++手順は[脆弱性のトリアージ](runbooks/vulnerability-triage.md)にある．
++
+ ## 権限
+ 
+ | 権限 | 承認する人 | 決まり |
+diff --git a/app/ops/records.md b/app/ops/records.md
+index 2f6f691..1cca680 100644
+--- a/app/ops/records.md
++++ b/app/ops/records.md
+@@ -14,6 +14,7 @@
+ | access-review | 決めた間隔で権限を棚卸ししていたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
+ | access-review | 棚卸しの期間に，誰が誰の権限を変えたかを示す | セキュリティ責任者 | 棚卸しの日 | 90日 | audit | time, actor_id, action, target_id, result |
+ | credential-rotation | パスワードを決めた日数のうちに交換していたことを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
++| escalation | 期限を過ぎた脆弱性を，いつ上位者に知らせたかを示す | 監査人 | 依頼から1週間以内 | 400日 | ops | time, job, result, detail |
+ 
+ ## ログの種類
+ 
+diff --git a/app/ops/runbooks/exception-request.md b/app/ops/runbooks/exception-request.md
+index 672716a..78f0114 100644
+--- a/app/ops/runbooks/exception-request.md
++++ b/app/ops/runbooks/exception-request.md
+@@ -25,6 +25,7 @@ SAST(Semgrep)の検出を誤検知として例外にするのは，次のどち
+ 2. 例外にしてよい理由を確かめる．到達しないことを理由にするなら，呼んでいない関数と，その確かめ方を書く．
+ 3. `ops/exceptions.yaml`に例外を足すプルリクエストを作る．
+    期限は，直す予定の日にする．基準値の`exception.max_days`を超えてはならない．
++   脆弱性の例外には，トリアージの結果も書く([脆弱性のトリアージ](vulnerability-triage.md))．
+ 4. セキュリティ責任者が，理由と期限を確かめて承認する(CODEOWNERSで必須になっている)．
+ 5. 期限が来る前に直すか，理由を確かめ直して期限を延ばす申請をする．
+ 
+diff --git a/app/ops/runbooks/vulnerability-triage.md b/app/ops/runbooks/vulnerability-triage.md
+new file mode 100644
+index 0000000..5e4c24d
+--- /dev/null
++++ b/app/ops/runbooks/vulnerability-triage.md
+@@ -0,0 +1,42 @@
++# 脆弱性のトリアージ
++
++ゲートや再検査(`rescan.yml`)で見つかった脆弱性について，影響があるかを判断し，直すまでの期限を管理する手順．
++
++## きっかけ
++
++- CIの`sca`か`image`のジョブ，または`rescan.yml`が，基準値の重大度以上の脆弱性を見つけた．
++- `VulnerabilityOverdue`のアラートが来た(直す期限を過ぎた)．
++
++## 手順
++
++1. Trivyの結果(証跡の`trivy.json`)から，脆弱性の識別子，パッケージ，重大度を確かめる．
++   見つかった日は，その脆弱性が初めて出た結果の日付である．
++2. 直した版があれば，例外にせずに更新する．更新のプルリクエストがCIを通れば終わる．
++3. 直せないときは，脆弱性の説明(GitHub Advisory Databaseなど)を読み，影響があるかを判断する．
++   - 影響がない：脆弱な関数を呼んでいない，攻撃者が入力を操作できない，など．呼んでいないことは，コードの検索などで確かめ，その方法を書く．
++   - 影響がある，または判断できない：直すまで待つ．
++4. `ops/exceptions.yaml`に例外を足す．脆弱性の例外には，次のトリアージの結果を書く．
++   - `package`：pURL(例：`pkg:npm/ip`)．
++   - `severity`と`found`：Trivyの重大度と，見つかった日．
++   - `status`：影響がなければ`not_affected`，あれば`affected`．
++   - `justification`：`not_affected`の根拠．OpenVEXの5つから選ぶ．
++5. `affected`の例外の期限は，`found`に基準値の`vulnerability.sla_days`の日数を足した日より後にしない．
++   `mise run gate:sla`で確かめる．
++6. セキュリティ責任者の承認を受ける([例外の申請](exception-request.md))．
++
++`not_affected`の例外は，ゲートが証跡にOpenVEXの文書(`openvex.json`)として残す．
++顧客から問い合わせがあれば，この文書で影響がないことを示す．
++
++## 期限を過ぎたとき
++
++`rescan.yml`が毎日`gate:sla`を動かし，期限を過ぎた脆弱性を`VulnerabilityOverdue`(`severity: page`)としてAlertmanagerへ送る．
++オンコールの担当者が受け，次のどちらかをその日のうちに行う．
++
++- 直す．直せないなら，影響を減らす対策(機能を止める，入力を絞る)をとる．
++- セキュリティ責任者に，期限までに直せない理由と次の期限を説明し，判断を仰ぐ．
++
++## 証跡
++
++- `ops/exceptions.yaml`の変更履歴と，承認されたプルリクエスト．
++- ゲートの証跡の`openvex.json`と`sla/sla.json`．
++- `ops`のログの`escalation`の記録．
+diff --git a/app/ops/schema/exceptions.schema.json b/app/ops/schema/exceptions.schema.json
+index f587870..b84671d 100644
+--- a/app/ops/schema/exceptions.schema.json
++++ b/app/ops/schema/exceptions.schema.json
+@@ -37,13 +37,44 @@
+           "minLength": 1
+         },
+         "package": {
+-          "description": "対象のパッケージ(分かる場合)",
++          "description": "対象のパッケージ．脆弱性の例外では，pURLの形(例：pkg:npm/ip)で書く",
+           "type": "string"
+         },
+         "path": {
+           "description": "対象のファイル(SASTの検出など，場所で特定するとき)",
+           "type": "string"
+         },
++        "severity": {
++          "description": "脆弱性の重大度(Trivyの結果のもの)",
++          "enum": [
++            "LOW",
++            "MEDIUM",
++            "HIGH",
++            "CRITICAL"
++          ]
++        },
++        "found": {
++          "description": "初めて見つかった日．直すまでの期限はここから数える",
++          "type": "string",
++          "format": "date"
++        },
++        "status": {
++          "description": "トリアージの結果(OpenVEXの状態)．affected は影響があり直すまで待つ，not_affected は影響がない",
++          "enum": [
++            "affected",
++            "not_affected"
++          ]
++        },
++        "justification": {
++          "description": "影響がない根拠(OpenVEXの justification)",
++          "enum": [
++            "component_not_present",
++            "vulnerable_code_not_present",
++            "vulnerable_code_not_in_execute_path",
++            "vulnerable_code_cannot_be_controlled_by_adversary",
++            "inline_mitigations_already_exist"
++          ]
++        },
+         "reason": {
+           "description": "例外にする理由",
+           "type": "string",
+@@ -59,7 +90,50 @@
+           "type": "string",
+           "format": "date"
+         }
+-      }
++      },
++      "allOf": [
++        {
++          "if": {
++            "properties": {
++              "target": {
++                "type": "string",
++                "pattern": "^(CVE|GHSA)-"
++              }
++            }
++          },
++          "then": {
++            "required": [
++              "package",
++              "severity",
++              "found",
++              "status"
++            ],
++            "properties": {
++              "package": {
++                "type": "string",
++                "pattern": "^pkg:"
++              }
++            }
++          }
++        },
++        {
++          "if": {
++            "properties": {
++              "status": {
++                "const": "not_affected"
++              }
++            },
++            "required": [
++              "status"
++            ]
++          },
++          "then": {
++            "required": [
++              "justification"
++            ]
++          }
++        }
++      ]
+     }
+   }
+ }
+diff --git a/app/ops/schema/standards.schema.json b/app/ops/schema/standards.schema.json
+index 35762d2..6bdb338 100644
+--- a/app/ops/schema/standards.schema.json
++++ b/app/ops/schema/standards.schema.json
+@@ -24,7 +24,8 @@
+       "type": "object",
+       "additionalProperties": false,
+       "required": [
+-        "fail_severity"
++        "fail_severity",
++        "sla_days"
+       ],
+       "properties": {
+         "fail_severity": {
+@@ -35,6 +36,35 @@
+             "HIGH",
+             "CRITICAL"
+           ]
++        },
++        "sla_days": {
++          "description": "見つかってから直すまでの最長の日数(重大度ごと)",
++          "type": "object",
++          "additionalProperties": false,
++          "required": [
++            "CRITICAL",
++            "HIGH",
++            "MEDIUM",
++            "LOW"
++          ],
++          "properties": {
++            "CRITICAL": {
++              "type": "integer",
++              "minimum": 1
++            },
++            "HIGH": {
++              "type": "integer",
++              "minimum": 1
++            },
++            "MEDIUM": {
++              "type": "integer",
++              "minimum": 1
++            },
++            "LOW": {
++              "type": "integer",
++              "minimum": 1
++            }
++          }
+         }
+       }
+     },
+diff --git a/app/ops/standards.yaml b/app/ops/standards.yaml
+index 81bf1da..28483a9 100644
+--- a/app/ops/standards.yaml
++++ b/app/ops/standards.yaml
+@@ -7,6 +7,12 @@ change:
+ vulnerability:
+   # この重大度以上の脆弱性があれば，ゲートを失敗させる．
+   fail_severity: HIGH
++  # 見つかってから直すまでの最長の日数．影響がない(not_affected)と判断したものには適用しない．
++  sla_days:
++    CRITICAL: 7
++    HIGH: 30
++    MEDIUM: 90
++    LOW: 180
+ 
+ exception:
+   # 例外の期限は，承認した日から最長でこの日数までにする．
+diff --git a/app/tests/gates/fixtures/exceptions/lodash-vex.yaml b/app/tests/gates/fixtures/exceptions/lodash-vex.yaml
+new file mode 100644
+index 0000000..00f3c6f
+--- /dev/null
++++ b/app/tests/gates/fixtures/exceptions/lodash-vex.yaml
+@@ -0,0 +1,21 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-2021-23337
++    package: pkg:npm/lodash
++    severity: HIGH
++    found: 2026-09-20
++    status: not_affected
++    justification: vulnerable_code_not_in_execute_path
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2099-12-31
++  - id: EXC-002
++    target: CVE-2026-4800
++    package: pkg:npm/lodash
++    severity: HIGH
++    found: 2026-09-20
++    status: not_affected
++    justification: vulnerable_code_not_in_execute_path
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2099-12-31
+diff --git a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+index 492bfe3..dc1f6a3 100644
+--- a/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/invalid-standards/ops/standards.yaml
+@@ -2,6 +2,7 @@ change:
+   required_approvals: 0
+ vulnerability:
+   fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
+ exception:
+   max_days: 90
+ license:
+diff --git a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+index e9482cf..b2343fa 100644
+--- a/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/missing-job/ops/standards.yaml
+@@ -2,6 +2,7 @@ change:
+   required_approvals: 1
+ vulnerability:
+   fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
+ exception:
+   max_days: 90
+ license:
+diff --git a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+index e9482cf..b2343fa 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-missing-field/ops/standards.yaml
+@@ -2,6 +2,7 @@ change:
+   required_approvals: 1
+ vulnerability:
+   fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
+ exception:
+   max_days: 90
+ license:
+diff --git a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+index e9482cf..b2343fa 100644
+--- a/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/records-short-retention/ops/standards.yaml
+@@ -2,6 +2,7 @@ change:
+   required_approvals: 1
+ vulnerability:
+   fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
+ exception:
+   max_days: 90
+ license:
+diff --git a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+index e9482cf..b2343fa 100644
+--- a/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/stale-list/ops/standards.yaml
+@@ -2,6 +2,7 @@ change:
+   required_approvals: 1
+ vulnerability:
+   fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
+ exception:
+   max_days: 90
+ license:
+diff --git a/app/tests/gates/fixtures/ops-verify/untriaged/ops/exceptions.yaml b/app/tests/gates/fixtures/ops-verify/untriaged/ops/exceptions.yaml
+new file mode 100644
+index 0000000..44e870f
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/untriaged/ops/exceptions.yaml
+@@ -0,0 +1,7 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-2024-29415
++    package: pkg:npm/ip
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-12-31
+diff --git a/app/tests/gates/fixtures/ops-verify/untriaged/ops/items.md b/app/tests/gates/fixtures/ops-verify/untriaged/ops/items.md
+new file mode 100644
+index 0000000..1aa6a65
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/untriaged/ops/items.md
+@@ -0,0 +1,7 @@
++<!-- このファイルは mise run ops:render で items.yaml から生成する．手で編集しない． -->
++
++# 運用項目一覧
++
++| ID | 項目 | 分類 | 要求 | 仕組み | 証跡 | タイミング | 実施者 | 手順書 |
++| --- | --- | --- | --- | --- | --- | --- | --- | --- |
++| change-management | 変更管理 | 運用管理 | SOC2:CC8.1 | ci.yml: check | レビュー記録 | 定常(変更ごと) | 自動 | [手順書](runbooks/emergency-change.md) |
+diff --git a/app/tests/gates/fixtures/ops-verify/untriaged/ops/items.yaml b/app/tests/gates/fixtures/ops-verify/untriaged/ops/items.yaml
+new file mode 100644
+index 0000000..ce7b959
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/untriaged/ops/items.yaml
+@@ -0,0 +1,12 @@
++items:
++  - id: change-management
++    title: 変更管理
++    category: 運用管理
++    requirements: [SOC2:CC8.1]
++    mechanisms:
++      - workflow: ci.yml
++        job: check
++    evidence: レビュー記録
++    timing: 定常(変更ごと)
++    actor: 自動
++    runbook: runbooks/emergency-change.md
+diff --git a/app/tests/gates/fixtures/ops-verify/untriaged/ops/runbooks/emergency-change.md b/app/tests/gates/fixtures/ops-verify/untriaged/ops/runbooks/emergency-change.md
+new file mode 100644
+index 0000000..ef07fd2
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/untriaged/ops/runbooks/emergency-change.md
+@@ -0,0 +1 @@
++# 緊急変更
+diff --git a/app/tests/gates/fixtures/ops-verify/untriaged/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/untriaged/ops/standards.yaml
+new file mode 100644
+index 0000000..b2343fa
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/untriaged/ops/standards.yaml
+@@ -0,0 +1,26 @@
++change:
++  required_approvals: 1
++vulnerability:
++  fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
++exception:
++  max_days: 90
++license:
++  allowed: [MIT]
++evidence:
++  retention_days: 400
++monitoring:
++  error_rate_threshold: 0.05
++  error_rate_for: 5m
++logs:
++  retention_days:
++    api: 30
++backup:
++  interval_hours: 24
++  retention_days: 35
++eol:
++  warn_days: 90
++access:
++  review_interval_days: 30
++credentials:
++  max_age_days: 90
+diff --git a/app/tests/gates/fixtures/ops-verify/untriaged/workflows/ci.yml b/app/tests/gates/fixtures/ops-verify/untriaged/workflows/ci.yml
+new file mode 100644
+index 0000000..97c7c6a
+--- /dev/null
++++ b/app/tests/gates/fixtures/ops-verify/untriaged/workflows/ci.yml
+@@ -0,0 +1,6 @@
++on: push
++jobs:
++  check:
++    runs-on: ubuntu-latest
++    steps:
++      - run: "true"
+diff --git a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+index e9482cf..b2343fa 100644
+--- a/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
++++ b/app/tests/gates/fixtures/ops-verify/valid/ops/standards.yaml
+@@ -2,6 +2,7 @@ change:
+   required_approvals: 1
+ vulnerability:
+   fail_severity: HIGH
++  sla_days: { CRITICAL: 7, HIGH: 30, MEDIUM: 90, LOW: 180 }
+ exception:
+   max_days: 90
+ license:
+diff --git a/app/tests/gates/fixtures/sla/beyond-sla.yaml b/app/tests/gates/fixtures/sla/beyond-sla.yaml
+new file mode 100644
+index 0000000..b7fd9d4
+--- /dev/null
++++ b/app/tests/gates/fixtures/sla/beyond-sla.yaml
+@@ -0,0 +1,10 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-0000-0001
++    package: pkg:npm/example
++    severity: HIGH
++    found: 2026-09-20
++    status: affected
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-12-31
+diff --git a/app/tests/gates/fixtures/sla/overdue.yaml b/app/tests/gates/fixtures/sla/overdue.yaml
+new file mode 100644
+index 0000000..672bd95
+--- /dev/null
++++ b/app/tests/gates/fixtures/sla/overdue.yaml
+@@ -0,0 +1,10 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-0000-0001
++    package: pkg:npm/example
++    severity: HIGH
++    found: 2026-08-20
++    status: affected
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-09-15
+diff --git a/app/tests/gates/fixtures/sla/within.yaml b/app/tests/gates/fixtures/sla/within.yaml
+new file mode 100644
+index 0000000..412edd9
+--- /dev/null
++++ b/app/tests/gates/fixtures/sla/within.yaml
+@@ -0,0 +1,26 @@
++exceptions:
++  - id: EXC-001
++    target: CVE-0000-0001
++    package: pkg:npm/example
++    severity: HIGH
++    found: 2026-09-20
++    status: affected
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-10-20
++  - id: EXC-002
++    target: CVE-0000-0002
++    package: pkg:npm/example
++    severity: CRITICAL
++    found: 2026-01-01
++    status: not_affected
++    justification: vulnerable_code_not_in_execute_path
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-12-31
++  - id: EXC-003
++    target: use-of-sha1
++    path: etag.go
++    reason: テスト用の例外
++    approver: "@security-lead"
++    expires: 2026-12-31
+diff --git a/app/tests/gates/ops-verify.test.ts b/app/tests/gates/ops-verify.test.ts
+index 7d733ec..36b73ab 100644
+--- a/app/tests/gates/ops-verify.test.ts
++++ b/app/tests/gates/ops-verify.test.ts
+@@ -52,4 +52,10 @@ describe("ops:verify", () => {
+     );
+     expect(result.status).toBe(1);
+   });
++
++  it("脆弱性の例外にトリアージの結果がなければ失敗する", () => {
++    const result = verify("untriaged");
++    expect(result.output).toContain("must have required property 'severity'");
++    expect(result.status).toBe(1);
++  });
+ });
+diff --git a/app/tests/gates/sca.test.ts b/app/tests/gates/sca.test.ts
+index f65f7a7..9117602 100644
+--- a/app/tests/gates/sca.test.ts
++++ b/app/tests/gates/sca.test.ts
+@@ -33,6 +33,21 @@ describe("gate:sca", () => {
+     expect(sca("vulnerable", "lodash").status).toBe(0);
+   });
+ 
++  it("影響がない(not_affected)例外は，OpenVEXの文書にして外す", () => {
++    expect(sca("vulnerable", "lodash-vex").status).toBe(0);
++    const vex = JSON.parse(
++      readFileSync(join(evidenceDir, "sca/openvex.json"), "utf8"),
++    );
++    expect(vex.statements).toContainEqual(
++      expect.objectContaining({
++        vulnerability: { name: "CVE-2021-23337" },
++        products: [{ "@id": "pkg:npm/lodash" }],
++        status: "not_affected",
++        justification: "vulnerable_code_not_in_execute_path",
++      }),
++    );
++  });
++
+   it("期限を過ぎた例外では外さない", () => {
+     expect(sca("vulnerable", "lodash-expired").status).toBe(1);
+   });
+diff --git a/app/tests/gates/sla.test.ts b/app/tests/gates/sla.test.ts
+new file mode 100644
+index 0000000..1b76c66
+--- /dev/null
++++ b/app/tests/gates/sla.test.ts
+@@ -0,0 +1,41 @@
++import { describe, expect, it } from "vitest";
++import { fixture, run } from "./helpers.ts";
++
++/** fixtures/sla/<name>.yaml の例外を，2026-10-04 の時点で検査する． */
++function sla(name: string) {
++  return run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/sla.ts",
++    "--exceptions",
++    fixture("sla", `${name}.yaml`),
++    "--today",
++    "2026-10-04",
++  ]);
++}
++
++describe("gate:sla", () => {
++  it("影響がある脆弱性が，直すまでの期限を過ぎていれば失敗する", () => {
++    const result = sla("overdue");
++    expect(result.output).toContain(
++      "EXC-001: CVE-0000-0001(HIGH)は直す期限(2026-09-19)を過ぎている",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("例外の期限が，直すまでの期限を超えていれば失敗する", () => {
++    const result = sla("beyond-sla");
++    expect(result.output).toContain(
++      "EXC-001: 例外の期限(2026-12-31)が直す期限(2026-10-20)を超えている",
++    );
++    expect(result.status).toBe(1);
++  });
++
++  it("期限内のものと，影響がないものだけなら通る", () => {
++    const result = sla("within");
++    expect(result.output).toContain(
++      "sla: 1 affected, 1 not_affected, 0 overdue",
++    );
++    expect(result.status).toBe(0);
++  });
++});
+diff --git a/app/tests/ops/escalation.test.ts b/app/tests/ops/escalation.test.ts
+new file mode 100644
+index 0000000..9eba35d
+--- /dev/null
++++ b/app/tests/ops/escalation.test.ts
+@@ -0,0 +1,67 @@
++import { join } from "node:path";
++import { Ajv2020 } from "ajv/dist/2020.js";
++import { beforeAll, describe, expect, it } from "vitest";
++import { logLineSchema, readLogs } from "../../tools/ops/logs.ts";
++import { appRoot, fixture, run } from "../gates/helpers.ts";
++
++// 期限を過ぎた脆弱性が，Alertmanagerからオンコールの担当者へ届くことを確かめる．
++// Dev ContainerのAlertmanager(mise run up は要らない)と，運用の作業の記録のためにMiniStackを使う．
++const alertmanager = process.env.ALERTMANAGER_URL ?? "http://localhost:9093";
++let sla: ReturnType<typeof run>;
++
++beforeAll(() => {
++  sla = run("pnpm", [
++    "exec",
++    "tsx",
++    "tools/gates/sla.ts",
++    "--exceptions",
++    fixture("sla", "overdue.yaml"),
++    "--today",
++    "2026-10-04",
++    "--alertmanager",
++    alertmanager,
++  ]);
++});
++
++describe("期限切れのエスカレーション", () => {
++  it("期限を過ぎた脆弱性を，オンコールの担当者へのアラートとして送る", async () => {
++    expect(sla.status).toBe(1);
++    const res = await fetch(
++      `${alertmanager}/api/v2/alerts?filter=alertname="VulnerabilityOverdue"`,
++    );
++    const alerts = (await res.json()) as {
++      labels: Record<string, string>;
++      receivers: { name: string }[];
++    }[];
++    const alert = alerts.find(
++      (a) => a.labels.vulnerability === "CVE-0000-0001",
++    );
++    expect(alert?.labels.severity).toBe("page");
++    expect(alert?.receivers.map((r) => r.name)).toContain("on-call");
++  });
++
++  it("知らせたことが ops のロググループに残り，ログの設計に合う", () => {
++    const result = run("aws", [
++      "logs",
++      "filter-log-events",
++      "--log-group-name",
++      "/app/ops",
++      "--log-stream-names",
++      "escalation",
++    ]);
++    const lines = (
++      JSON.parse(result.output).events as { message: string }[]
++    ).map((e) => JSON.parse(e.message));
++    const validate = new Ajv2020().compile(
++      logLineSchema(readLogs(join(appRoot, "ops")), "ops"),
++    );
++    for (const line of lines) {
++      expect(validate(line), JSON.stringify(validate.errors)).toBe(true);
++    }
++    expect(lines.at(-1)).toMatchObject({
++      job: "escalation",
++      result: "succeeded",
++      detail: "VulnerabilityOverdue: EXC-001",
++    });
++  });
++});
+diff --git a/app/tools/gates/sla.ts b/app/tools/gates/sla.ts
+new file mode 100644
+index 0000000..04b9914
+--- /dev/null
++++ b/app/tools/gates/sla.ts
+@@ -0,0 +1,130 @@
++// 脆弱性を直すまでの期限(SLA)を検査する．
++// 影響がある(affected)脆弱性の例外が，見つかった日から基準値の日数を過ぎていれば失敗する．
++// Alertmanagerの場所を渡すと，期限を過ぎたものを上位者へのアラートとして送る．
++import { writeFileSync } from "node:fs";
++import { join } from "node:path";
++import { parseArgs } from "node:util";
++import { opsLog } from "../ops/run.ts";
++import {
++  type Exception,
++  readExceptions,
++  readStandards,
++  type Severity,
++} from "../ops/standards.ts";
++import { evidenceDirOf } from "./trivy.ts";
++
++const day = 24 * 60 * 60 * 1000;
++
++/** YYYY-MM-DD に日数を足す． */
++function addDays(date: string, days: number): string {
++  return new Date(Date.parse(date) + days * day).toISOString().slice(0, 10);
++}
++
++export type SlaResult = {
++  affected: Exception[];
++  notAffected: Exception[];
++  /** 直す期限を過ぎた例外と，その期限． */
++  overdue: { exception: Exception; due: string }[];
++  problems: string[];
++};
++
++/** 脆弱性の例外を，重大度ごとの日数(slaDays)と比べる．today は YYYY-MM-DD である． */
++export function checkSla(
++  exceptions: Exception[],
++  slaDays: Record<Severity, number>,
++  today: string,
++): SlaResult {
++  const result: SlaResult = {
++    affected: [],
++    notAffected: [],
++    overdue: [],
++    problems: [],
++  };
++  for (const e of exceptions) {
++    if (e.status === "not_affected") {
++      result.notAffected.push(e);
++      continue;
++    }
++    // SASTなど，脆弱性でない例外は対象にしない(トリアージの結果の有無は ops:verify が確かめる)．
++    if (e.status !== "affected" || !e.found || !e.severity) {
++      continue;
++    }
++    result.affected.push(e);
++    const due = addDays(e.found, slaDays[e.severity]);
++    if (today > due) {
++      result.overdue.push({ exception: e, due });
++      result.problems.push(
++        `${e.id}: ${e.target}(${e.severity})は直す期限(${due})を過ぎている`,
++      );
++    } else if (e.expires > due) {
++      result.problems.push(
++        `${e.id}: 例外の期限(${e.expires})が直す期限(${due})を超えている`,
++      );
++    }
++  }
++  return result;
++}
++
++/** 期限を過ぎた脆弱性を，AlertmanagerのAPIへアラートとして送る． */
++async function escalate(
++  alertmanager: string,
++  overdue: SlaResult["overdue"],
++): Promise<void> {
++  const alerts = overdue.map(({ exception: e, due }) => ({
++    labels: {
++      alertname: "VulnerabilityOverdue",
++      severity: "page",
++      exception: e.id,
++      vulnerability: e.target,
++    },
++    annotations: {
++      summary: `${e.target}(${e.severity}，${e.package})が直す期限(${due})を過ぎている`,
++      runbook: "ops/runbooks/vulnerability-triage.md",
++    },
++  }));
++  const res = await fetch(`${alertmanager}/api/v2/alerts`, {
++    method: "POST",
++    headers: { "Content-Type": "application/json" },
++    body: JSON.stringify(alerts),
++  });
++  const ids = overdue.map((o) => o.exception.id).join(", ");
++  opsLog("escalation", res.ok, `VulnerabilityOverdue: ${ids}`);
++  if (!res.ok) {
++    throw new Error(`Alertmanagerへの送信に失敗した: ${res.status}`);
++  }
++}
++
++if (import.meta.main) {
++  const { values } = parseArgs({
++    options: {
++      ops: { type: "string", default: "ops" },
++      exceptions: { type: "string", default: "ops/exceptions.yaml" },
++      today: {
++        type: "string",
++        default: new Date().toISOString().slice(0, 10),
++      },
++      alertmanager: { type: "string", default: process.env.ALERTMANAGER_URL },
++    },
++  });
++  const result = checkSla(
++    readExceptions(values.exceptions),
++    readStandards(values.ops).vulnerability.sla_days,
++    values.today,
++  );
++  writeFileSync(
++    join(evidenceDirOf("sla"), "sla.json"),
++    `${JSON.stringify({ today: values.today, ...result }, null, 2)}\n`,
++  );
++  for (const problem of result.problems) {
++    console.error(problem);
++  }
++  if (values.alertmanager && result.overdue.length > 0) {
++    await escalate(values.alertmanager, result.overdue);
++  }
++  if (result.problems.length > 0) {
++    process.exit(1);
++  }
++  console.log(
++    `sla: ${result.affected.length} affected, ${result.notAffected.length} not_affected, 0 overdue`,
++  );
++}
+diff --git a/app/tools/gates/trivy.ts b/app/tools/gates/trivy.ts
+index 5847726..3df7dce 100644
+--- a/app/tools/gates/trivy.ts
++++ b/app/tools/gates/trivy.ts
+@@ -17,16 +17,44 @@ export function evidenceDirOf(gate: string): string {
+   return dir;
+ }
+ 
+-/** 例外を，Trivyの除外の設定(.trivyignore.yaml の形)に変える．脆弱性と設定の誤りの両方に使う． */
++/**
++ * 例外を，Trivyの除外の設定(.trivyignore.yaml の形)に変える．
++ * 影響がない(not_affected)脆弱性は，除外ではなくOpenVEXの文書(toOpenVex)で伝える．
++ */
+ export function toTrivyIgnore(exceptions: Exception[]) {
+-  const entries = exceptions.map((e) => ({
+-    id: e.target,
+-    statement: `${e.id}: ${e.reason} (承認：${e.approver})`,
+-    expired_at: e.expires,
+-  }));
++  const entries = exceptions
++    .filter((e) => e.status !== "not_affected")
++    .map((e) => ({
++      id: e.target,
++      statement: `${e.id}: ${e.reason} (承認：${e.approver})`,
++      expired_at: e.expires,
++    }));
+   return { vulnerabilities: entries, misconfigurations: entries };
+ }
+ 
++/**
++ * 影響がない(not_affected)脆弱性の例外を，OpenVEXの文書にする．
++ * 期限を過ぎた例外は含めない．today は YYYY-MM-DD である．
++ */
++export function toOpenVex(exceptions: Exception[], today: string) {
++  return {
++    "@context": "https://openvex.dev/ns/v0.2.0",
++    "@id": `urn:compliance-handson:vex:${today}`,
++    author: "compliance-handson",
++    timestamp: `${today}T00:00:00Z`,
++    version: 1,
++    statements: exceptions
++      .filter((e) => e.status === "not_affected" && e.expires >= today)
++      .map((e) => ({
++        vulnerability: { name: e.target },
++        products: [{ "@id": e.package }],
++        status: "not_affected",
++        justification: e.justification,
++        impact_statement: `${e.id}: ${e.reason} (承認：${e.approver})`,
++      })),
++  };
++}
++
+ export type TrivyOptions = {
+   /** trivy のサブコマンドと，それに固有の引数． */
+   args: string[];
+@@ -47,12 +75,21 @@ export function runTrivy(options: TrivyOptions): {
+   const severity = severitiesFrom(
+     readStandards(options.ops).vulnerability.fail_severity,
+   );
+-  // どの例外を適用したかの記録として，除外の設定も証跡に含める．
++  // どの例外を適用したかの記録として，除外の設定とOpenVEXの文書も証跡に含める．
++  const exceptions = readExceptions(options.exceptions);
+   const ignoreFile = join(options.evidenceDir, "trivyignore.yaml");
+-  writeFileSync(
+-    ignoreFile,
+-    stringify(toTrivyIgnore(readExceptions(options.exceptions))),
+-  );
++  writeFileSync(ignoreFile, stringify(toTrivyIgnore(exceptions)));
++  // OpenVEXは脆弱性の検査(fs，image)だけが読む．設定の検査(config)には渡さない．
++  const vexArgs: string[] = [];
++  if (options.args[0] !== "config") {
++    const vexFile = join(options.evidenceDir, "openvex.json");
++    const today = new Date().toISOString().slice(0, 10);
++    writeFileSync(
++      vexFile,
++      `${JSON.stringify(toOpenVex(exceptions, today), null, 2)}\n`,
++    );
++    vexArgs.push("--vex", vexFile);
++  }
+   const report = join(options.evidenceDir, "trivy.json");
+   const scan = spawnSync(
+     "trivy",
+@@ -62,6 +99,7 @@ export function runTrivy(options: TrivyOptions): {
+       severity.join(","),
+       "--ignorefile",
+       ignoreFile,
++      ...vexArgs,
+       "--exit-code",
+       "1",
+       "--quiet",
+diff --git a/app/tools/ops/standards.ts b/app/tools/ops/standards.ts
+index 4c6a3de..bafd21c 100644
+--- a/app/tools/ops/standards.ts
++++ b/app/tools/ops/standards.ts
+@@ -7,7 +7,10 @@ export type Severity = (typeof severities)[number];
+ /** 基準値．ops/schema/standards.schema.json の形に合う． */
+ export type Standards = {
+   change: { required_approvals: number };
+-  vulnerability: { fail_severity: Severity };
++  vulnerability: {
++    fail_severity: Severity;
++    sla_days: Record<Severity, number>;
++  };
+   exception: { max_days: number };
+   license: { allowed: string[] };
+   evidence: { retention_days: number };
+@@ -25,6 +28,11 @@ export type Exception = {
+   target: string;
+   package?: string;
+   path?: string;
++  /** 以下の4つは，脆弱性の例外のトリアージの結果． */
++  severity?: Severity;
++  found?: string;
++  status?: "affected" | "not_affected";
++  justification?: string;
+   reason: string;
+   approver: string;
+   expires: string;
+diff --git a/app/vitest.config.ts b/app/vitest.config.ts
+index 9c0e2e5..a1bd718 100644
+--- a/app/vitest.config.ts
++++ b/app/vitest.config.ts
+@@ -26,6 +26,8 @@ export default defineConfig({
+           name: "ops",
+           include: ["tests/ops/**/*.test.ts"],
+           testTimeout: 60_000,
++          // どのテストも同じ本番の環境を使う．パスワードの交換などがほかのテストと重ならないよう，1つずつ動かす．
++          fileParallelism: false,
+         },
+       },
+     ],
