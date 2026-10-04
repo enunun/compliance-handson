@@ -159,7 +159,14 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 - IAMのポリシーは既定では評価されない．AssumeRoleWithWebIdentityは，検証できないトークンでも認証情報を返す．権限は静的な検査で確かめる．
 - Secrets Managerのローテーションは設定できるが，実行されない(READMEによる)．
 - RDSやECSのコンテナを起動するには，Python版では`ministack[full]`(`cryptography`を含む)と，Dockerのソケットが要る．
-- ECSのRunTaskとOpenTofuとの組み合わせは，まだ確認していない．Dev Containerを作る段階で最初に確かめる．
+- OpenTofu 1.13.1とAWSプロバイダ6系で，次を作成し，削除できる．
+  S3(Object Lock，ライフサイクル)，RDS，ECS(Fargateのサービス)，IAMロール，
+  CloudWatch Logs，ECR，Secrets Manager．
+  プロバイダの`endpoints`で各サービスを`http://localhost:4566`に向け，`s3_use_path_style = true`にする．
+- ECSのサービスは，タスク定義のイメージで実際のコンテナを起動する．
+- RDSは`max_allocated_storage`を指定しないと`allocated_storage`と同じ値を返し，変更も反映しない．
+  再`plan`で差分が出続けるので，`lifecycle`の`ignore_changes`に`max_allocated_storage`を書く．
+- MiniStackをコンテナで動かすと，RDSのエンドポイントはDockerのブリッジのIPアドレス(例：`172.17.0.3:5432`)になる．アプリから届くネットワークに置く．
 - 動作が版ごとに変わりやすいので，版を固定する．
 
 ### nektos/act(0.2.89で確認)
