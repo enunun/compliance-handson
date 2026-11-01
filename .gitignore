@@ -84,3 +84,6 @@ app/apps/api/bin/
 .terraform/
 *.tfstate
 *.tfstate.*
+
+# for pnpm, ignore the store directory (which is usually outside the project)
+.pnpm-store/
