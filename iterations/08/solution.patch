@@ -1,8 +1,8 @@
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index d4a3e92..bd640f4 100644
+index fcf43b9..6141430 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
-@@ -143,6 +143,9 @@ jobs:
+@@ -148,6 +148,9 @@ jobs:
          image: ministackorg/ministack:1.5.21@sha256:7a30ff0670578e10528b5a9a21e795ef494f96bbc35691c9b0742ea35de71808
          ports:
            - 4566:4566
@@ -790,10 +790,10 @@ index 0000000..663a931
 +  retention_in_days = each.value
 +}
 diff --git a/app/mise.toml b/app/mise.toml
-index af0c951..f5130db 100644
+index f1b13a4..c60f0be 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -172,7 +172,7 @@ run = "tofu -chdir=infra destroy -input=false -auto-approve"
+@@ -188,7 +188,7 @@ run = "tofu -chdir=infra destroy -input=false -auto-approve"
  
  [tasks."dev:api"]
  description = "APIを起動する(先にmise run upを実行する)"
@@ -803,20 +803,20 @@ index af0c951..f5130db 100644
  DATABASE_URL="$(tofu -chdir=infra output -raw database_url)" \
  go -C apps/api run ./cmd/api
 diff --git a/app/ops/items.md b/app/ops/items.md
-index cd754fb..1c55ea2 100644
+index 830ee36..9e56c39 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -17,3 +17,5 @@
- | actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | ロックファイル(actions.lock)の変更の記録，CIのpinningジョブの結果 | 定常(変更ごと) | 自動 | [手順書](runbooks/actions-lock.md) |
  | artifact-signing | 成果物の署名とprovenance | 基盤運用 | SLSA:Build-L2<br>SSDF:PS.2 | release.yml: release | 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON) | 定常(リリースごと) | 自動 | [手順書](runbooks/verify-image.md) |
  | service-monitoring | APIの監視 | 基盤運用 | ISO27001:A.8.16<br>SOC2:CC7.2 | alert: ApiHighErrorRate | アラートのルールとそのテストの結果，Alertmanagerの通知の記録 | 定常(常時) | 自動 | [手順書](runbooks/api-high-error-rate.md) |
 +| log-design | ログの設計 | 運用管理 | ISO27001:A.8.15 | ci.yml: check | 運用項目とログの対応表(records.md)と，ops:verify の結果 | 定常(変更ごと) | 自動 |  |
 +| audit-logging | 監査ログ | 運用管理 | ISO27001:A.8.15<br>SOC2:CC7.2 | ci.yml: evidence | 監査ログのロググループの設定(保管期間)と，運用テストの結果 | 定常(常時) | 自動 |  |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index d3f6100..408dae4 100644
+index b23b9d6..6b6b953 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
-@@ -150,3 +150,45 @@ items:
+@@ -151,3 +151,45 @@ items:
      timing: 定常(常時)
      actor: 自動
      runbook: runbooks/api-high-error-rate.md

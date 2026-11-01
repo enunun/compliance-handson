@@ -103,7 +103,7 @@ CIはGitHub Actionsで動かす．
 | 3 | SBOMの生成(コンポーネントごと)，ライセンスポリシー，証跡の保管 | Trivy，S3 | ログ管理(4.6節) |
 | 4 | SASTと誤検知の扱い | Semgrep | |
 | 5 | コンテナイメージとOpenTofuの設定検査 | Trivy | |
-| 6 | Actionsのハッシュ固定，成果物の署名とprovenance | cosign，artifact attestations | |
+| 6 | Actionsのロックファイルによる部品の固定，成果物の署名とprovenance | gh actions-lock，cosign，artifact attestations | |
 | 7 | 監視とアラート | Prometheus，Alertmanager，Grafana | 監視運用(4.5節) |
 | 8 | 運用項目からのログ設計，構造化ログ，監査ログ | CloudWatch Logs | ログ管理(4.6節) |
 | 9 | バックアップとリストア，リストアの訓練 | pg_dump，S3，RDS | バックアップ/リストア運用(4.4節) |
@@ -199,6 +199,17 @@ CLIは題材リポジトリの`mise.toml`と`mise.lock`で，コンテナはイ�
 - S3はパス形式でアクセスする．OpenTofuではプロバイダに`s3_use_path_style = true`を書き，AWS CLIでは`.devcontainer/aws-config`で設定する．
 - S3 Controlは`000000000000.ministack`のように，アカウントIDを付けたホスト名で接続する．
   Composeで，MiniStackにこのホスト名をネットワークのエイリアスとして付ける．
+
+### GitHub Actionsのロックファイル(gh actions-lock 0.4.0)
+
+- `gh actions-lock`はGitHubのAPIで，タグのコミットとリポジトリの番号を調べる．`gh auth login`でログインしておく．
+- 第6回以降の解答のパッチは，`.github/workflows/actions.lock`の変更を含む．
+  教材でワークフローの`uses:`を変えたら，その回とそれより後の回の状態で`gh actions-lock`を実行し，パッチを作り直す．
+- 1.0より前の版なので，動作やロックファイルの形式(`version`)が版ごとに変わりうる．版は`actions:setup`タスクと`renovate.json`の`constraints.ghActionsLock`で固定し，両方を一緒に上げる．
+- ロックファイルは，ジョブの`uses:`で呼ぶ別のリポジトリのreusable workflowと，コンテナのイメージを固定しない．`gate:pinning`がハッシュとダイジェストを求める．
+- actはロックファイルを読まず，`uses:`のタグのまま動かす．
+- OpenSSF ScorecardのPinned-Dependenciesは，ワークフローの`uses:`のハッシュだけを見る(2026年11月時点)．ロックファイルで固定していても点は上がらない．
+- Renovateのロックファイルの更新は，試験的な機能である．
 
 ### 題材の道具
 

@@ -15,7 +15,7 @@
 $ mise run check
 ...
 [test]       Tests  17 passed (17)
-[test:gates]       Tests  51 passed (51)
+[test:gates]       Tests  52 passed (52)
 [ops:verify] ops: ok
 [gate:secrets] INF no leaks found
 [gate:exceptions] exceptions: 3 active, 0 expired
@@ -94,7 +94,7 @@ wrote out/checksheet-sample.md
 | 3 | SBOMとライセンス，証跡の保管 | CycloneDX，ライセンスポリシー，S3のObject Lock，OpenTofu |
 | 4 | SAST | Semgrep，誤検知の扱い |
 | 5 | コンテナとIaCの設定検査 | イメージの検査，設定の誤りの検出 |
-| 6 | ワークフローと成果物の完全性 | ハッシュ固定，cosign，SLSA provenance，OIDC |
+| 6 | ワークフローと成果物の完全性 | Actionsのロックファイル，cosign，SLSA provenance，OIDC |
 | 7 | 監視とアラート | Prometheus，Alertmanager，Grafana，promtool |
 | 8 | ログ設計 | 運用からのログの導出，構造化ログ，監査ログ，CloudWatch Logs |
 | 9 | バックアップとリストア | pg_dump，RPO，リストアの訓練，定期ジョブ |
@@ -231,18 +231,23 @@ wrote out/checksheet-sample.md
 
 - 要求：CIで使う部品のすり替えを防ぐ．出荷したイメージが，このリポジトリのCIで作られたことを検証できるようにする(SLSA，NIST SSDF PS.2)．
 - 仕込む問題：第0回から，ワークフローの`uses:`をタグで参照している．この回では新たに仕込まない．
-- 使用例：`mise run gate:pinning`が，ハッシュで固定されていない`uses:`を検出する．
+- 使用例：`mise run actions:lock`が，ワークフローのactionをロックファイル(`.github/workflows/actions.lock`)に固定する．
+  `mise run gate:pinning`が，ロックファイルに載っていないactionと，ハッシュかダイジェストで固定されていないreusable workflowとイメージを検出する．
   `v`で始まるタグをpushすると，`release.yml`がイメージをGHCRに置き，キーレスの署名とprovenanceを付けて検証する．
 - 追加するもの：
   - `ops/items.yaml`：`actions-pinning`と`artifact-signing`．
+  - `.github/workflows/actions.lock`：`mise run actions:lock`(`gh actions-lock`)で作る．
+    CIでは`mise run actions:verify`で，最新かを確かめる．
   - `tools/gates/pinning.ts`と`mise run gate:pinning`．
   - `.github/workflows/release.yml`：イメージのpush，cosignでのキーレスの署名，`actions/attest-build-provenance`，検証．
   - `tools/gates/verify-image.sh`と`mise run release:verify`：署名とprovenanceの検証．第13回のデプロイの前の検証でも使う．
-- ゲートのテスト：タグやブランチを参照するワークフローなら失敗し，ハッシュに固定した参照と同じリポジトリの中の参照だけなら通る．
+- ゲートのテスト：ロックファイルにないactionやワークフロー，ハッシュで固定していない別のリポジトリのreusable workflow，ダイジェストで固定していないイメージがあれば失敗する．
+  ロックファイルに載ったaction，ハッシュに固定した参照，同じリポジトリの中の参照だけなら通る．
 - 証跡：署名とprovenance．検証の結果(JSON)をartifactに残す．
-- 設計書の更新：手順書に，イメージの署名とprovenanceを確かめる手順を書く．
+- 設計書の更新：手順書に，actionを足して更新する手順(ロックファイルの差分のレビュー)と，イメージの署名とprovenanceを確かめる手順を書く．
 - 既存のテストへの影響：なし．
-- 学習者が行う道具の操作：OIDCのトークンはactでは発行されないので，この回はGitHubにタグをpushして確かめる．
+- 学習者が行う道具の操作：`gh auth login`の後に`mise run actions:lock`でロックファイルを作る．
+  OIDCのトークンと`gh actions-lock --verify`はactでは動かないので，この回はGitHubにタグをpushして確かめる．
 
 ## 第7回 監視とアラート
 
@@ -322,7 +327,7 @@ wrote out/checksheet-sample.md
 - 追加するもの：
   - `ops/standards.yaml`：`eol.warn_days`．
   - `ops/items.yaml`：`dependency-updates`，`release-rescan`，`eol-tracking`．仕組みに，外部のサービスが読む設定ファイルも書けるようにする．
-  - `renovate.json`：更新の方針．GitHub Actionsのハッシュも更新する．
+  - `renovate.json`：更新の方針．GitHub Actionsのactionは，タグとロックファイルを一緒に更新する．
   - `.github/workflows/rescan.yml`と`mise run rescan:image`：リリース済みのイメージの再検査．
   - `tools/gates/eol.ts`と`mise run gate:eol`：`mise.toml`とDockerfileの版を，endoflife.dateのデータと照らし合わせる．
 - 依存関係の更新：第2回の例外(golang-jwt)を，直った版に上げて閉じる．

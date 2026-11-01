@@ -9,7 +9,7 @@ index cc7970f..c8c0fd9 100644
 +/app/infra/policies/ @security-lead
 diff --git a/.github/workflows/access.yml b/.github/workflows/access.yml
 new file mode 100644
-index 0000000..e1f58fa
+index 0000000..d3c53c3
 --- /dev/null
 +++ b/.github/workflows/access.yml
 @@ -0,0 +1,80 @@
@@ -51,12 +51,12 @@ index 0000000..e1f58fa
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: actions/checkout@v5.1.0
 +      - run: echo "127.0.0.1 000000000000.localhost" | sudo tee -a /etc/hosts
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run up
 +      - run: mise run ops:access-review
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-access-review
@@ -83,22 +83,37 @@ index 0000000..e1f58fa
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: actions/checkout@v5.1.0
 +      - run: echo "127.0.0.1 000000000000.localhost" | sudo tee -a /etc/hosts
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run up
 +      - run: mise run ops:rotate-db-password
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-rotate-db-password
 +          path: app/out/evidence/
+diff --git a/.github/workflows/actions.lock b/.github/workflows/actions.lock
+index 36620a5..ad28575 100644
+--- a/.github/workflows/actions.lock
++++ b/.github/workflows/actions.lock
+@@ -3,6 +3,10 @@
+ # Docs: https://gh.io/actions-lockfile
+ version: 'v0.0.3'
+ workflows:
++    '.github/workflows/access.yml':
++        - 'actions/checkout@v5.1.0'
++        - 'actions/upload-artifact@v4.6.2'
++        - 'jdx/mise-action@v3.6.3'
+     '.github/workflows/backup.yml':
+         - 'actions/checkout@v5.1.0'
+         - 'actions/upload-artifact@v4.6.2'
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index 5ab815e..6376eca 100644
+index 9c67d9a..6e7a06e 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
-@@ -142,6 +142,16 @@ jobs:
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+@@ -147,6 +147,16 @@ jobs:
+       - uses: jdx/mise-action@v3.6.3
        - run: mise run gate:eol
  
 +  iam:
@@ -107,8 +122,8 @@ index 5ab815e..6376eca 100644
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:iam
 +
    # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
@@ -378,10 +393,10 @@ index 0000000..39635e1
 +  ]
 +}
 diff --git a/app/mise.toml b/app/mise.toml
-index 2b412a9..c9ce11f 100644
+index 8524daf..3d19e63 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -100,6 +100,11 @@ description = "リリース済みのイメージを，最新の脆弱性のデ
+@@ -116,6 +116,11 @@ description = "リリース済みのイメージを，最新の脆弱性のデ
  depends = ["install"]
  run = "pnpm exec tsx tools/gates/image.ts"
  
@@ -393,7 +408,7 @@ index 2b412a9..c9ce11f 100644
  [tasks.sbom]
  description = "コンポーネントごとのSBOM(CycloneDX)を作る"
  depends = ["install"]
-@@ -149,7 +154,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+@@ -165,7 +170,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
  
  [tasks.gates]
  description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
@@ -402,7 +417,7 @@ index 2b412a9..c9ce11f 100644
  
  [tasks.check]
  description = "題材の検査とゲートをまとめて実行する"
-@@ -171,6 +176,16 @@ description = "最新のバックアップを新しいデータベースに戻
+@@ -187,6 +192,16 @@ description = "最新のバックアップを新しいデータベースに戻
  depends = ["install"]
  run = "pnpm exec tsx tools/ops/restore-test.ts"
  
@@ -419,7 +434,7 @@ index 2b412a9..c9ce11f 100644
  [tasks."evidence:upload"]
  description = "out/evidence/ の証跡を，日付とコミットごとに証跡の保管場所へ送る"
  run = """
-@@ -195,7 +210,7 @@ run = "tofu -chdir=infra destroy -input=false -auto-approve"
+@@ -211,7 +226,7 @@ run = "tofu -chdir=infra destroy -input=false -auto-approve"
  description = "APIを起動する(先にmise run upを実行する)"
  env = { TEST_USER_PASSWORD = "password", LOG_GROUP_PREFIX = "/app/" }
  run = """
@@ -429,7 +444,7 @@ index 2b412a9..c9ce11f 100644
  """
  
 diff --git a/app/ops/items.md b/app/ops/items.md
-index 8bf2129..854d057 100644
+index efcd9fa..3296ad7 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -24,3 +24,6 @@
@@ -440,10 +455,10 @@ index 8bf2129..854d057 100644
 +| access-review | 権限の棚卸し | 業務運用 | ISO27001:A.5.18<br>SOC2:CC6.2 | access.yml: access-review | 棚卸しの報告(IAMの利用者とアクセスキー，CloudTrailの記録，GitHubの協力者) | 定常(standards.yaml の access.review_interval_days ごと) | 人 | [手順書](runbooks/access-review.md) |
 +| credential-rotation | 認証情報の交換 | 基盤運用 | ISO27001:A.5.17<br>SOC2:CC6.1 | access.yml: rotate-db-password | 交換の結果と，運用の作業の記録 | 定常(standards.yaml の credentials.max_age_days より短い間隔)と非定常(漏洩のとき) | 自動 | [手順書](runbooks/credential-rotation.md) |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index 398ac85..7380499 100644
+index fbb7f99..293e307 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
-@@ -262,3 +262,58 @@ items:
+@@ -263,3 +263,58 @@ items:
      evidence: CIのeolジョブの結果
      timing: 定常(変更ごと)
      actor: 自動

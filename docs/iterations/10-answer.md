@@ -77,6 +77,8 @@ golang-jwtを4.5.2に上げ，`EXC-001`を消した．
 タグが指すイメージは第6回の`release.yml`がGHCRに置いたものなので，検査の前に署名を確かめてもよい(第13回でデプロイの前に行う)．
 
 `renovate.json`は，RenovateのJSON Schemaで確かめた．
+actionはロックファイルで固定しているので，ハッシュで固定するプリセット(`helpers:pinGitHubActionDigests`)は使わない．
+`constraints.ghActionsLock`で，Renovateが使う`gh actions-lock`の版を，`mise.toml`の`actions:setup`と同じ`v0.4.0`にした．
 
 ## 10-6 振り返り
 

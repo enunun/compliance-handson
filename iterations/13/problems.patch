@@ -1,6 +1,34 @@
+diff --git a/.github/workflows/actions.lock b/.github/workflows/actions.lock
+index ad28575..db4e3b5 100644
+--- a/.github/workflows/actions.lock
++++ b/.github/workflows/actions.lock
+@@ -16,6 +16,11 @@ workflows:
+         - 'actions/download-artifact@v4.3.0'
+         - 'actions/upload-artifact@v4.6.2'
+         - 'jdx/mise-action@v3.6.3'
++    '.github/workflows/deploy.yml':
++        - 'actions/checkout@v5.1.0'
++        - 'actions/upload-artifact@v4.6.2'
++        - 'aws-actions/configure-aws-credentials@v6.3.0'
++        - 'jdx/mise-action@v3.6.3'
+     '.github/workflows/release.yml':
+         - 'actions/attest-build-provenance@v4.1.0'
+         - 'actions/checkout@v5.1.0'
+@@ -53,6 +58,11 @@ dependencies:
+         commit: 'sha1-ea165f8d65b6e75b540449e92b4886f43607fa02'
+         owner_id: 44036562
+         repo_id: 192625955
++    'aws-actions/configure-aws-credentials@v6.3.0':
++        ref: 'v6.3.0'
++        commit: 'sha1-e1253824e5c10ff9df46874f81ed3ec929e19cfd'
++        owner_id: 57468012
++        repo_id: 220391287
+     'jdx/mise-action@v3.6.3':
+         ref: 'v3.6.3'
+         commit: 'sha1-5228313ee0372e111a38da051671ca30fc5a96db'
 diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
 new file mode 100644
-index 0000000..c1b3c33
+index 0000000..5809ae2
 --- /dev/null
 +++ b/.github/workflows/deploy.yml
 @@ -0,0 +1,41 @@
@@ -28,9 +56,9 @@ index 0000000..c1b3c33
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
++      - uses: aws-actions/configure-aws-credentials@v6.3.0
 +        with:
 +          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
 +          aws-region: ap-northeast-1
@@ -40,7 +68,7 @@ index 0000000..c1b3c33
 +        run: |
 +          image="$(echo "ghcr.io/${GITHUB_REPOSITORY}/api:${TAG}" | tr '[:upper:]' '[:lower:]')"
 +          mise run deploy --image "${image}"
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-deploy
@@ -142,10 +170,10 @@ index 15ac67f..a5e83f6 100644
 +  value = aws_ecs_service.api.name
 +}
 diff --git a/app/mise.toml b/app/mise.toml
-index 01c9254..b2875c0 100644
+index ad3573e..977ac2b 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -191,6 +191,11 @@ description = "データベースのパスワードを交換する"
+@@ -207,6 +207,11 @@ description = "データベースのパスワードを交換する"
  depends = ["install"]
  run = "pnpm exec tsx tools/ops/rotate-db-password.ts"
  

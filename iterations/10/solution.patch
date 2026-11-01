@@ -1,10 +1,25 @@
+diff --git a/.github/workflows/actions.lock b/.github/workflows/actions.lock
+index 943e57f..36620a5 100644
+--- a/.github/workflows/actions.lock
++++ b/.github/workflows/actions.lock
+@@ -17,6 +17,10 @@ workflows:
+         - 'actions/checkout@v5.1.0'
+         - 'actions/upload-artifact@v4.6.2'
+         - 'jdx/mise-action@v3.6.3'
++    '.github/workflows/rescan.yml':
++        - 'actions/checkout@v5.1.0'
++        - 'actions/upload-artifact@v4.6.2'
++        - 'jdx/mise-action@v3.6.3'
+ dependencies:
+     'actions/attest-build-provenance@v4.1.0':
+         ref: 'v4.1.0'
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index bd640f4..5ab815e 100644
+index 6141430..9c67d9a 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
-@@ -132,6 +132,16 @@ jobs:
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-       - run: mise run gate:pinning
+@@ -137,6 +137,16 @@ jobs:
+           GH_TOKEN: ${{ github.token }}
+         run: mise run actions:verify
  
 +  eol:
 +    runs-on: ubuntu-latest
@@ -12,8 +27,8 @@ index bd640f4..5ab815e 100644
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:eol
 +
    # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
@@ -21,7 +36,7 @@ index bd640f4..5ab815e 100644
    evidence:
 diff --git a/.github/workflows/rescan.yml b/.github/workflows/rescan.yml
 new file mode 100644
-index 0000000..51df3b1
+index 0000000..2032ead
 --- /dev/null
 +++ b/.github/workflows/rescan.yml
 @@ -0,0 +1,44 @@
@@ -45,10 +60,10 @@ index 0000000..51df3b1
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: actions/checkout@v5.1.0
 +        with:
 +          fetch-depth: 0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: jdx/mise-action@v3.6.3
 +      - name: 最新のリリースのイメージを決める
 +        id: image
 +        run: |
@@ -64,7 +79,7 @@ index 0000000..51df3b1
 +      - name: 再検査する
 +        if: steps.image.outputs.ref
 +        run: mise run rescan:image --image "${{ steps.image.outputs.ref }}"
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-rescan
@@ -108,10 +123,10 @@ index 17c5ceb..fddacd4 100644
  github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
  github.com/jackc/pgpassfile v1.0.0 h1:/6Hmqy13Ss2zCq62VdNG8tM1wchn8zjSGOBJ6icpsIM=
 diff --git a/app/mise.toml b/app/mise.toml
-index 88d83fc..2b412a9 100644
+index 7abe156..8524daf 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -90,6 +90,16 @@ run = "pnpm exec tsx tools/gates/pinning.ts"
+@@ -106,6 +106,16 @@ run = "gh actions-lock --verify"
  description = "イメージの署名とprovenanceを検証し，証跡に残す(引数は <イメージ>@<ダイジェスト>)"
  run = "tools/gates/verify-image.sh"
  
@@ -128,7 +143,7 @@ index 88d83fc..2b412a9 100644
  [tasks.sbom]
  description = "コンポーネントごとのSBOM(CycloneDX)を作る"
  depends = ["install"]
-@@ -139,7 +149,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+@@ -155,7 +165,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
  
  [tasks.gates]
  description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
@@ -158,7 +173,7 @@ index 72f6022..1521b60 100644
      target: use-of-sha1
      path: apps/api/internal/server/server.go
 diff --git a/app/ops/items.md b/app/ops/items.md
-index 0239ab0..8bf2129 100644
+index 6a5cc86..efcd9fa 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -21,3 +21,6 @@
@@ -169,10 +184,10 @@ index 0239ab0..8bf2129 100644
 +| release-rescan | リリース済みのイメージの再検査 | 基盤運用 | ISO27001:A.8.8<br>SOC2:CC7.1 | rescan.yml: rescan | 再検査の結果(JSON)をartifactとして保存 | 定常(毎日) | 自動 |  |
 +| eol-tracking | サポートの終了の管理 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.5.21 | ci.yml: eol | CIのeolジョブの結果 | 定常(変更ごと) | 自動 |  |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index 1feeb10..398ac85 100644
+index b757530..fbb7f99 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
-@@ -230,3 +230,35 @@ items:
+@@ -231,3 +231,35 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]
@@ -760,13 +775,13 @@ index 666ad9e..38b3fef 100644
            problems.push({
 diff --git a/renovate.json b/renovate.json
 new file mode 100644
-index 0000000..7da2d96
+index 0000000..d2774dd
 --- /dev/null
 +++ b/renovate.json
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,28 @@
 +{
 +  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
++  "extends": ["config:recommended"],
 +  "timezone": "Asia/Tokyo",
 +  "schedule": ["before 9am on monday"],
 +  "minimumReleaseAge": "3 days",
@@ -778,11 +793,14 @@ index 0000000..7da2d96
 +      "groupName": "minor and patch updates"
 +    },
 +    {
-+      "description": "GitHub Actionsは，ハッシュとコメントの版を一緒に更新する",
++      "description": "GitHub Actionsは，ワークフローのタグとロックファイル(actions.lock)を一緒に更新する",
 +      "matchManagers": ["github-actions"],
 +      "groupName": "github actions"
 +    }
 +  ],
++  "constraints": {
++    "ghActionsLock": "v0.4.0"
++  },
 +  "vulnerabilityAlerts": {
 +    "description": "脆弱性の修正は，スケジュールを待たずにすぐ出す",
 +    "schedule": ["at any time"],

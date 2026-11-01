@@ -1,6 +1,21 @@
+diff --git a/.github/workflows/actions.lock b/.github/workflows/actions.lock
+index 31a7289..943e57f 100644
+--- a/.github/workflows/actions.lock
++++ b/.github/workflows/actions.lock
+@@ -3,6 +3,10 @@
+ # Docs: https://gh.io/actions-lockfile
+ version: 'v0.0.3'
+ workflows:
++    '.github/workflows/backup.yml':
++        - 'actions/checkout@v5.1.0'
++        - 'actions/upload-artifact@v4.6.2'
++        - 'jdx/mise-action@v3.6.3'
+     '.github/workflows/ci.yml':
+         - 'actions/checkout@v5.1.0'
+         - 'actions/download-artifact@v4.3.0'
 diff --git a/.github/workflows/backup.yml b/.github/workflows/backup.yml
 new file mode 100644
-index 0000000..7169009
+index 0000000..08b3600
 --- /dev/null
 +++ b/.github/workflows/backup.yml
 @@ -0,0 +1,45 @@
@@ -38,13 +53,13 @@ index 0000000..7169009
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: actions/checkout@v5.1.0
 +      - run: echo "127.0.0.1 000000000000.localhost" | sudo tee -a /etc/hosts
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run up
 +      - run: mise run ops:backup
 +      - run: mise run ops:restore-test
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-backup
@@ -124,10 +139,10 @@ index b712c7a..7e7ddf7 100644
 +  value = aws_s3_bucket.backups.bucket
 +}
 diff --git a/app/mise.toml b/app/mise.toml
-index f5130db..88d83fc 100644
+index c60f0be..7abe156 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -148,8 +148,19 @@ depends = ["check:code", "gates"]
+@@ -164,8 +164,19 @@ depends = ["check:code", "gates"]
  [tasks."test:ops"]
  description = "運用テストを実行する(先にmise run upを実行する)"
  depends = ["install"]
@@ -148,7 +163,7 @@ index f5130db..88d83fc 100644
  description = "out/evidence/ の証跡を，日付とコミットごとに証跡の保管場所へ送る"
  run = """
 diff --git a/app/ops/items.md b/app/ops/items.md
-index 1c55ea2..0239ab0 100644
+index 9e56c39..6a5cc86 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -19,3 +19,5 @@
@@ -158,10 +173,10 @@ index 1c55ea2..0239ab0 100644
 +| backup | データベースのバックアップ | 基盤運用 | ISO27001:A.8.13<br>SOC2:A1.2 | backup.yml: backup | バックアップのファイル(バックアップの保管場所)と，運用の作業の記録 | 定常(standards.yaml の backup.interval_hours ごと) | 自動 | [手順書](runbooks/restore.md) |
 +| restore-test | リストアの訓練 | 基盤運用 | ISO27001:A.8.13<br>SOC2:A1.3 | backup.yml: backup | リストアの訓練の結果(元と戻した先の行数の比較)と，運用の作業の記録 | 定常(バックアップのたび) | 自動 | [手順書](runbooks/restore.md) |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index 408dae4..1feeb10 100644
+index 6b6b953..b757530 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
-@@ -192,3 +192,41 @@ items:
+@@ -193,3 +193,41 @@ items:
          keep_days: 90
          log: audit
          fields: [time, actor_email, action, result, source_ip]
