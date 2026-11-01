@@ -8,12 +8,34 @@ index c8c0fd9..071f154 100644
  /app/infra/policies/ @security-lead
 +/app/policy/ @security-lead
 +/.github/workflows/gates.yml @security-lead
+diff --git a/.github/workflows/actions.lock b/.github/workflows/actions.lock
+index db4e3b5..32168f3 100644
+--- a/.github/workflows/actions.lock
++++ b/.github/workflows/actions.lock
+@@ -14,13 +14,16 @@ workflows:
+     '.github/workflows/ci.yml':
+         - 'actions/checkout@v5.1.0'
+         - 'actions/download-artifact@v4.3.0'
+-        - 'actions/upload-artifact@v4.6.2'
+         - 'jdx/mise-action@v3.6.3'
+     '.github/workflows/deploy.yml':
+         - 'actions/checkout@v5.1.0'
+         - 'actions/upload-artifact@v4.6.2'
+         - 'aws-actions/configure-aws-credentials@v6.3.0'
+         - 'jdx/mise-action@v3.6.3'
++    '.github/workflows/gates.yml':
++        - 'actions/checkout@v5.1.0'
++        - 'actions/upload-artifact@v4.6.2'
++        - 'jdx/mise-action@v3.6.3'
+     '.github/workflows/release.yml':
+         - 'actions/attest-build-provenance@v4.1.0'
+         - 'actions/checkout@v5.1.0'
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index 9e273b2..ff96b0a 100644
+index 7187c60..33e5c04 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
-@@ -19,158 +19,13 @@ jobs:
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+@@ -19,163 +19,13 @@ jobs:
+       - uses: jdx/mise-action@v3.6.3
        - run: mise run check:code
  
 -  secrets:
@@ -22,13 +44,13 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+-      - uses: actions/checkout@v5.1.0
 -        with:
 -          # 履歴全体を検査するので，すべてのコミットを取得する．
 -          fetch-depth: 0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:secrets
--      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-      - uses: actions/upload-artifact@v4.6.2
 -        if: always()
 -        with:
 -          name: evidence-secrets
@@ -40,10 +62,10 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:sca
--      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-      - uses: actions/upload-artifact@v4.6.2
 -        if: always()
 -        with:
 -          name: evidence-sca
@@ -55,8 +77,8 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:exceptions
 -
 -  sla:
@@ -65,10 +87,10 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:sla
--      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-      - uses: actions/upload-artifact@v4.6.2
 -        if: always()
 -        with:
 -          name: evidence-sla
@@ -80,10 +102,10 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:license
--      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-      - uses: actions/upload-artifact@v4.6.2
 -        if: always()
 -        with:
 -          name: evidence-sbom
@@ -95,10 +117,10 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:sast
--      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-      - uses: actions/upload-artifact@v4.6.2
 -        if: always()
 -        with:
 -          name: evidence-sast
@@ -110,10 +132,10 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:image
--      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-      - uses: actions/upload-artifact@v4.6.2
 -        if: always()
 -        with:
 -          name: evidence-image
@@ -125,10 +147,10 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:config
--      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+-      - uses: actions/upload-artifact@v4.6.2
 -        if: always()
 -        with:
 -          name: evidence-config
@@ -140,9 +162,14 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:pinning
+-      # ロックファイルのコミットが今も元のタグから辿れるかを，GitHubのAPIで確かめる．actでは動かさない．
+-      - if: ${{ !env.ACT }}
+-        env:
+-          GH_TOKEN: ${{ github.token }}
+-        run: mise run actions:verify
 -
 -  eol:
 -    runs-on: ubuntu-latest
@@ -150,8 +177,8 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:eol
 -
 -  iam:
@@ -160,8 +187,8 @@ index 9e273b2..ff96b0a 100644
 -      run:
 -        working-directory: app
 -    steps:
--      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
--      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+-      - uses: actions/checkout@v5.1.0
+-      - uses: jdx/mise-action@v3.6.3
 -      - run: mise run gate:iam
 +  gates:
 +    uses: ./.github/workflows/gates.yml
@@ -175,7 +202,7 @@ index 9e273b2..ff96b0a 100644
      runs-on: ubuntu-latest
      services:
 diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
-index c1b3c33..e6ce83f 100644
+index 5809ae2..3893d27 100644
 --- a/.github/workflows/deploy.yml
 +++ b/.github/workflows/deploy.yml
 @@ -1,6 +1,7 @@
@@ -197,8 +224,8 @@ index c1b3c33..e6ce83f 100644
        run:
 @@ -24,16 +27,30 @@ jobs:
      steps:
-       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - uses: actions/checkout@v5.1.0
+       - uses: jdx/mise-action@v3.6.3
 +      - name: GHCRにログインする
 +        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 +      - name: タグからイメージのダイジェストを得る
@@ -215,7 +242,7 @@ index c1b3c33..e6ce83f 100644
 +          REF: ${{ steps.image.outputs.ref }}
 +        run: mise run release:verify "${REF}"
 +      # AWSの認証情報は，検証が通ってから得る．
-       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+       - uses: aws-actions/configure-aws-credentials@v6.3.0
          with:
            role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
            aws-region: ap-northeast-1
@@ -227,19 +254,19 @@ index c1b3c33..e6ce83f 100644
 -          mise run deploy --image "${image}"
 +          REF: ${{ steps.image.outputs.ref }}
 +        run: mise run deploy --image "${REF}"
-       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+       - uses: actions/upload-artifact@v4.6.2
          if: always()
          with:
 diff --git a/.github/workflows/gates.yml b/.github/workflows/gates.yml
 new file mode 100644
-index 0000000..47153f7
+index 0000000..f8db1f7
 --- /dev/null
 +++ b/.github/workflows/gates.yml
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,185 @@
 +name: gates
 +
 +# ゲートのジョブ．ほかのワークフローから呼ぶ(reusable workflow)．
-+# 組織のほかのリポジトリも，次のようにハッシュで固定して呼べる．
++# 組織のほかのリポジトリも，次のように呼べる．ロックファイルはreusable workflowの呼び出しを固定しないので，ハッシュで固定する．
 +#   uses: <owner>/<repo>/.github/workflows/gates.yml@<コミットのハッシュ>
 +# 証跡は，ジョブごとに evidence-<ゲート> のartifactに残す．
 +on:
@@ -260,13 +287,13 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: actions/checkout@v5.1.0
 +        with:
 +          # 履歴全体を検査するので，すべてのコミットを取得する．
 +          fetch-depth: 0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:secrets
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-secrets
@@ -278,10 +305,10 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:sca
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-sca
@@ -293,8 +320,8 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:exceptions
 +
 +  sla:
@@ -303,10 +330,10 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:sla
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-sla
@@ -318,10 +345,10 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:license
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-sbom
@@ -333,10 +360,10 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:sast
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-sast
@@ -348,10 +375,10 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:image
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-image
@@ -363,10 +390,10 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:config
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-config
@@ -378,9 +405,14 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:pinning
++      # ロックファイルのコミットが今も元のタグから辿れるかを，GitHubのAPIで確かめる．actでは動かさない．
++      - if: ${{ !env.ACT }}
++        env:
++          GH_TOKEN: ${{ github.token }}
++        run: mise run actions:verify
 +
 +  eol:
 +    runs-on: ubuntu-latest
@@ -388,8 +420,8 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:eol
 +
 +  iam:
@@ -398,8 +430,8 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:iam
 +
 +  policy:
@@ -408,19 +440,19 @@ index 0000000..47153f7
 +      run:
 +        working-directory: ${{ inputs.working-directory }}
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:policy
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-policy
 +          path: ${{ inputs.working-directory }}/out/evidence/
 diff --git a/app/mise.toml b/app/mise.toml
-index b2875c0..9c80bfd 100644
+index 977ac2b..b185f76 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -119,6 +119,11 @@ run = [
+@@ -135,6 +135,11 @@ run = [
    'trivy fs --quiet --format cyclonedx --output "${EVIDENCE_DIR:-out/evidence}/sbom/api.cdx.json" apps/api',
  ]
  
@@ -432,7 +464,7 @@ index b2875c0..9c80bfd 100644
  [tasks."gate:license"]
  description = "SBOMの依存関係のライセンスが，許可したものかを検査する"
  depends = ["sbom"]
-@@ -159,7 +164,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+@@ -175,7 +180,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
  
  [tasks.gates]
  description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
@@ -442,7 +474,7 @@ index b2875c0..9c80bfd 100644
  [tasks.check]
  description = "題材の検査とゲートをまとめて実行する"
 diff --git a/app/ops/items.md b/app/ops/items.md
-index fb87686..b531856 100644
+index e8da5f2..a6b3a07 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -5,16 +5,16 @@
@@ -463,11 +495,11 @@ index fb87686..b531856 100644
 -| sast | コードの脆弱性検査(SAST) | 基盤運用 | ISO27001:A.8.28<br>SSDF:PW.7 | ci.yml: sast | Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
 -| container-image | コンテナイメージの検査 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.9 | ci.yml: image | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
 -| iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | ci.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
--| actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
+-| actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | ロックファイル(actions.lock)の変更の記録，CIのpinningジョブの結果 | 定常(変更ごと) | 自動 | [手順書](runbooks/actions-lock.md) |
 +| sast | コードの脆弱性検査(SAST) | 基盤運用 | ISO27001:A.8.28<br>SSDF:PW.7 | gates.yml: sast | Semgrepの結果(JSONとSARIF)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 | [手順書](runbooks/exception-request.md) |
 +| container-image | コンテナイメージの検査 | 基盤運用 | ISO27001:A.8.8<br>ISO27001:A.8.9 | gates.yml: image | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
 +| iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | gates.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
-+| actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | gates.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
++| actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | gates.yml: pinning | ロックファイル(actions.lock)の変更の記録，CIのpinningジョブの結果 | 定常(変更ごと) | 自動 | [手順書](runbooks/actions-lock.md) |
  | artifact-signing | 成果物の署名とprovenance | 基盤運用 | SLSA:Build-L2<br>SSDF:PS.2 | release.yml: release | 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON) | 定常(リリースごと) | 自動 | [手順書](runbooks/verify-image.md) |
  | service-monitoring | APIの監視 | 基盤運用 | ISO27001:A.8.16<br>SOC2:CC7.2 | alert: ApiHighErrorRate | アラートのルールとそのテストの結果，Alertmanagerの通知の記録 | 定常(常時) | 自動 | [手順書](runbooks/api-high-error-rate.md) |
  | log-design | ログの設計 | 運用管理 | ISO27001:A.8.15 | ci.yml: check | 運用項目とログの対応表(records.md)と，ops:verify の結果 | 定常(変更ごと) | 自動 |  |
@@ -487,7 +519,7 @@ index fb87686..b531856 100644
 +| shared-policy | 組織の共通ルールの適用 | 運用管理 | SSDF:PO.1<br>ISO27001:A.5.1 | gates.yml: policy | conftestの結果(JSON)と，policy/ の変更履歴 | 定常(変更ごと) | 自動 | [手順書](runbooks/shared-policy.md) |
 +| deploy-verification | デプロイ前の検証 | 基盤運用 | SSDF:PS.2<br>SLSA:Build-L2<br>ISO27001:A.8.32 | deploy.yml: deploy | デプロイの前の署名とprovenanceの検証結果，デプロイの結果 | 非定常(デプロイのとき) | 人 | [手順書](runbooks/verify-image.md) |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index 925ace0..fff4e58 100644
+index ebf2dce..9ba1b71 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
 @@ -19,7 +19,7 @@ items:
@@ -569,9 +601,9 @@ index 925ace0..fff4e58 100644
 -      - workflow: ci.yml
 +      - workflow: gates.yml
          job: pinning
-     evidence: CIのpinningジョブの結果
+     evidence: ロックファイル(actions.lock)の変更の記録，CIのpinningジョブの結果
      timing: 定常(変更ごと)
-@@ -257,7 +257,7 @@ items:
+@@ -258,7 +258,7 @@ items:
      category: 基盤運用
      requirements: [ISO27001:A.8.8, ISO27001:A.5.21]
      mechanisms:
@@ -580,7 +612,7 @@ index 925ace0..fff4e58 100644
          job: eol
      evidence: CIのeolジョブの結果
      timing: 定常(変更ごと)
-@@ -268,7 +268,7 @@ items:
+@@ -269,7 +269,7 @@ items:
      category: 基盤運用
      requirements: [ISO27001:A.5.15, ISO27001:A.8.2, SOC2:CC6.3]
      mechanisms:
@@ -589,7 +621,7 @@ index 925ace0..fff4e58 100644
          job: iam
      evidence: CIのiamジョブの結果と，policies/ のJSONの変更履歴
      timing: 定常(変更ごと)
-@@ -323,7 +323,7 @@ items:
+@@ -324,7 +324,7 @@ items:
      category: 運用管理
      requirements: [ISO27001:A.8.8, SOC2:CC7.4]
      mechanisms:
@@ -598,7 +630,7 @@ index 925ace0..fff4e58 100644
          job: sla
        - workflow: rescan.yml
          job: rescan
-@@ -350,3 +350,34 @@ items:
+@@ -351,3 +351,34 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]

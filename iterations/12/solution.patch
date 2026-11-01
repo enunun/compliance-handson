@@ -12,11 +12,11 @@ index bfd475b..41df75e 100644
        - ministack
  
 diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
-index 6376eca..9e273b2 100644
+index 6e7a06e..7187c60 100644
 --- a/.github/workflows/ci.yml
 +++ b/.github/workflows/ci.yml
 @@ -62,6 +62,21 @@ jobs:
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - uses: jdx/mise-action@v3.6.3
        - run: mise run gate:exceptions
  
 +  sla:
@@ -25,10 +25,10 @@ index 6376eca..9e273b2 100644
 +      run:
 +        working-directory: app
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
++      - uses: actions/checkout@v5.1.0
++      - uses: jdx/mise-action@v3.6.3
 +      - run: mise run gate:sla
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-sla
@@ -37,7 +37,7 @@ index 6376eca..9e273b2 100644
    sbom:
      runs-on: ubuntu-latest
      defaults:
-@@ -155,7 +170,7 @@ jobs:
+@@ -160,7 +175,7 @@ jobs:
    # ゲートのジョブが残した証跡を集め，証跡の保管場所へ送る．
    # 保管場所は，ジョブの中で起動したMiniStackの上に作る．
    evidence:
@@ -47,7 +47,7 @@ index 6376eca..9e273b2 100644
      runs-on: ubuntu-latest
      services:
 diff --git a/.github/workflows/rescan.yml b/.github/workflows/rescan.yml
-index 51df3b1..11bf55e 100644
+index 2032ead..158b1dc 100644
 --- a/.github/workflows/rescan.yml
 +++ b/.github/workflows/rescan.yml
 @@ -37,6 +37,12 @@ jobs:
@@ -60,11 +60,11 @@ index 51df3b1..11bf55e 100644
 +          # AlertmanagerのURL(リポジトリの変数)．なければ知らせずに検査だけする．
 +          ALERTMANAGER_URL: ${{ vars.ALERTMANAGER_URL }}
 +        run: mise run gate:sla
-       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+       - uses: actions/upload-artifact@v4.6.2
          if: always()
          with:
 diff --git a/app/mise.toml b/app/mise.toml
-index c9ce11f..01c9254 100644
+index 3d19e63..ad3573e 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
 @@ -62,6 +62,11 @@ description = "例外の期限を検査する"
@@ -79,7 +79,7 @@ index c9ce11f..01c9254 100644
  [tasks."gate:sast"]
  description = "コードの脆弱性をSemgrepで検査する"
  depends = ["install"]
-@@ -154,7 +159,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
+@@ -170,7 +175,7 @@ depends = ["lint", "test", "test:gates", "test:alerts", "ops:verify"]
  
  [tasks.gates]
  description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
@@ -112,7 +112,7 @@ index 479d1c9..152a693 100644
      approver: "@security-lead"
      expires: 2026-12-31
 diff --git a/app/ops/items.md b/app/ops/items.md
-index 854d057..fb87686 100644
+index 3296ad7..e8da5f2 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -27,3 +27,5 @@
@@ -122,10 +122,10 @@ index 854d057..fb87686 100644
 +| vulnerability-triage | 脆弱性のトリアージと期限の管理 | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | ci.yml: sla<br>rescan.yml: rescan | exceptions.yaml のトリアージの結果(見つかった日，状態，根拠)の変更履歴と，OpenVEXの文書 | 非定常(脆弱性が見つかったとき)と定常(変更ごと，毎日期限を検査) | 人 | [手順書](runbooks/vulnerability-triage.md) |
 +| escalation | 期限切れのエスカレーション | 運用管理 | ISO27001:A.8.8<br>SOC2:CC7.4 | rescan.yml: rescan | Alertmanagerの通知の記録と，運用の作業の記録 | 定常(毎日) | 自動 | [手順書](runbooks/vulnerability-triage.md) |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index 7380499..925ace0 100644
+index 293e307..ebf2dce 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
-@@ -317,3 +317,36 @@ items:
+@@ -318,3 +318,36 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]

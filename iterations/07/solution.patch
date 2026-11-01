@@ -250,10 +250,10 @@ index e0ebf9e..6d9544f 100644
 +	}
 +}
 diff --git a/app/mise.toml b/app/mise.toml
-index d47c9d2..af0c951 100644
+index c1a382d..f1b13a4 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -104,13 +104,23 @@ description = "SBOMの依存関係のライセンスが，許可したものか
+@@ -120,13 +120,23 @@ description = "SBOMの依存関係のライセンスが，許可したものか
  depends = ["sbom"]
  run = 'pnpm exec tsx tools/gates/license.ts "${EVIDENCE_DIR:-out/evidence}"/sbom/*.cdx.json'
  
@@ -278,7 +278,7 @@ index d47c9d2..af0c951 100644
  depends = ["install"]
  run = "pnpm exec tsx tools/ops/render.ts"
  
-@@ -125,7 +135,7 @@ echo "wrote out/evidence/change/branch-protection-$(date +%Y%m%d).json"
+@@ -141,7 +151,7 @@ echo "wrote out/evidence/change/branch-protection-$(date +%Y%m%d).json"
  
  [tasks."check:code"]
  description = "コードと運用項目を検査する(CIのcheckジョブ)"
@@ -288,19 +288,19 @@ index d47c9d2..af0c951 100644
  [tasks.gates]
  description = "すべてのゲートを実行する(CIではゲートごとのジョブ)"
 diff --git a/app/ops/items.md b/app/ops/items.md
-index ace28e7..cd754fb 100644
+index 642ba35..830ee36 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -16,3 +16,4 @@
  | iac-config | DockerfileとOpenTofuの設定の検査 | 基盤運用 | ISO27001:A.8.9<br>SOC2:CC7.1 | ci.yml: config | Trivyの結果(JSON)を証跡の保管場所に保管 | 定常(変更ごと) | 自動 |  |
- | actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | CIのpinningジョブの結果 | 定常(変更ごと) | 自動 |  |
+ | actions-pinning | ワークフローの部品の固定 | 基盤運用 | SLSA:Build<br>SSDF:PO.3 | ci.yml: pinning | ロックファイル(actions.lock)の変更の記録，CIのpinningジョブの結果 | 定常(変更ごと) | 自動 | [手順書](runbooks/actions-lock.md) |
  | artifact-signing | 成果物の署名とprovenance | 基盤運用 | SLSA:Build-L2<br>SSDF:PS.2 | release.yml: release | 署名とprovenance(GHCRとGitHubのattestation)，検証の結果(JSON) | 定常(リリースごと) | 自動 | [手順書](runbooks/verify-image.md) |
 +| service-monitoring | APIの監視 | 基盤運用 | ISO27001:A.8.16<br>SOC2:CC7.2 | alert: ApiHighErrorRate | アラートのルールとそのテストの結果，Alertmanagerの通知の記録 | 定常(常時) | 自動 | [手順書](runbooks/api-high-error-rate.md) |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index b753f92..d3f6100 100644
+index ee3d955..b23b9d6 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
-@@ -139,3 +139,14 @@ items:
+@@ -140,3 +140,14 @@ items:
      timing: 定常(リリースごと)
      actor: 自動
      runbook: runbooks/verify-image.md

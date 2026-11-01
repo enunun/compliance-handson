@@ -1,12 +1,36 @@
+diff --git a/.github/workflows/actions.lock b/.github/workflows/actions.lock
+index 32168f3..f896729 100644
+--- a/.github/workflows/actions.lock
++++ b/.github/workflows/actions.lock
+@@ -33,6 +33,10 @@ workflows:
+         - 'actions/checkout@v5.1.0'
+         - 'actions/upload-artifact@v4.6.2'
+         - 'jdx/mise-action@v3.6.3'
++    '.github/workflows/scorecard.yml':
++        - 'actions/checkout@v5.1.0'
++        - 'actions/upload-artifact@v4.6.2'
++        - 'ossf/scorecard-action@v2.4.4'
+ dependencies:
+     'actions/attest-build-provenance@v4.1.0':
+         ref: 'v4.1.0'
+@@ -71,3 +75,8 @@ dependencies:
+         commit: 'sha1-5228313ee0372e111a38da051671ca30fc5a96db'
+         owner_id: 216188
+         repo_id: 738284564
++    'ossf/scorecard-action@v2.4.4':
++        ref: 'v2.4.4'
++        commit: 'sha1-2d1146689b8cda280b9bc96326124645441f03bc'
++        owner_id: 67707773
++        repo_id: 421101922
 diff --git a/.github/workflows/gates.yml b/.github/workflows/gates.yml
-index 47153f7..f1fbea8 100644
+index f8db1f7..eed43e2 100644
 --- a/.github/workflows/gates.yml
 +++ b/.github/workflows/gates.yml
 @@ -58,6 +58,11 @@ jobs:
-       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+       - uses: actions/checkout@v5.1.0
+       - uses: jdx/mise-action@v3.6.3
        - run: mise run gate:exceptions
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-exceptions
@@ -14,11 +38,11 @@ index 47153f7..f1fbea8 100644
  
    sla:
      runs-on: ubuntu-latest
-@@ -143,6 +148,11 @@ jobs:
-       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-       - run: mise run gate:pinning
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+@@ -148,6 +153,11 @@ jobs:
+         env:
+           GH_TOKEN: ${{ github.token }}
+         run: mise run actions:verify
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-pinning
@@ -26,11 +50,11 @@ index 47153f7..f1fbea8 100644
  
    eol:
      runs-on: ubuntu-latest
-@@ -153,6 +163,11 @@ jobs:
-       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+@@ -158,6 +168,11 @@ jobs:
+       - uses: actions/checkout@v5.1.0
+       - uses: jdx/mise-action@v3.6.3
        - run: mise run gate:eol
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-eol
@@ -38,11 +62,11 @@ index 47153f7..f1fbea8 100644
  
    iam:
      runs-on: ubuntu-latest
-@@ -163,6 +178,11 @@ jobs:
-       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-       - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+@@ -168,6 +183,11 @@ jobs:
+       - uses: actions/checkout@v5.1.0
+       - uses: jdx/mise-action@v3.6.3
        - run: mise run gate:iam
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        if: always()
 +        with:
 +          name: evidence-iam
@@ -52,7 +76,7 @@ index 47153f7..f1fbea8 100644
      runs-on: ubuntu-latest
 diff --git a/.github/workflows/scorecard.yml b/.github/workflows/scorecard.yml
 new file mode 100644
-index 0000000..73323f9
+index 0000000..833b820
 --- /dev/null
 +++ b/.github/workflows/scorecard.yml
 @@ -0,0 +1,33 @@
@@ -77,15 +101,15 @@ index 0000000..73323f9
 +      contents: read
 +      actions: read # ワークフローの設定を評価する
 +    steps:
-+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
++      - uses: actions/checkout@v5.1.0
 +        with:
 +          persist-credentials: false
-+      - uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
++      - uses: ossf/scorecard-action@v2.4.4
 +        with:
 +          results_file: scorecard/results.json
 +          results_format: json
 +          publish_results: false
-+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
++      - uses: actions/upload-artifact@v4.6.2
 +        with:
 +          name: evidence-scorecard
 +          path: scorecard/
@@ -128,10 +152,10 @@ index 0000000..5171433
 +    text: データセンターへの物理的な入退室を管理していますか
 +    requirements: [ISO27001:A.7.2]
 diff --git a/app/mise.toml b/app/mise.toml
-index 9c80bfd..d8f27b1 100644
+index b185f76..5bbb71e 100644
 --- a/app/mise.toml
 +++ b/app/mise.toml
-@@ -201,6 +201,16 @@ description = "APIのイメージをECSのサービスにデプロイする(引
+@@ -217,6 +217,16 @@ description = "APIのイメージをECSのサービスにデプロイする(引
  depends = ["install"]
  run = "pnpm exec tsx tools/ops/deploy.ts"
  
@@ -149,7 +173,7 @@ index 9c80bfd..d8f27b1 100644
  description = "out/evidence/ の証跡を，日付とコミットごとに証跡の保管場所へ送る"
  run = """
 diff --git a/app/ops/items.md b/app/ops/items.md
-index b531856..a7ff793 100644
+index a6b3a07..44ede9d 100644
 --- a/app/ops/items.md
 +++ b/app/ops/items.md
 @@ -28,6 +28,9 @@
@@ -164,10 +188,10 @@ index b531856..a7ff793 100644
 +| monthly-report | 月次報告 | 運用管理 | SOC2:CC2.2<br>SOC2:CC4.1<br>ISO27001:A.5.35 | mise run ops:report | 月次報告(out/report-YYYY-MM.md)を証跡の保管場所に保管 | 定常(毎月) | 人 | [手順書](runbooks/monthly-report.md) |
 +| checksheet-response | セキュリティチェックシートへの回答 | 業務運用 | SOC2:CC2.3<br>ISO27001:A.5.36 | mise run ops:checksheet | 回答の下書きと，提出した回答の記録 | 非定常(顧客や監査から依頼があったとき) | 人 | [手順書](runbooks/checksheet.md) |
 diff --git a/app/ops/items.yaml b/app/ops/items.yaml
-index fff4e58..7b92b65 100644
+index 9ba1b71..7352db3 100644
 --- a/app/ops/items.yaml
 +++ b/app/ops/items.yaml
-@@ -211,6 +211,7 @@ items:
+@@ -212,6 +212,7 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]
@@ -175,7 +199,7 @@ index fff4e58..7b92b65 100644
  
    - id: restore-test
      title: リストアの訓練
-@@ -230,6 +231,7 @@ items:
+@@ -231,6 +232,7 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]
@@ -183,7 +207,7 @@ index fff4e58..7b92b65 100644
  
    - id: dependency-updates
      title: 依存関係の更新
-@@ -292,6 +294,7 @@ items:
+@@ -293,6 +295,7 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]
@@ -191,7 +215,7 @@ index fff4e58..7b92b65 100644
        - question: 棚卸しの期間に，誰が誰の権限を変えたかを示す
          asker: セキュリティ責任者
          within: 棚卸しの日
-@@ -317,6 +320,7 @@ items:
+@@ -318,6 +321,7 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]
@@ -199,7 +223,7 @@ index fff4e58..7b92b65 100644
  
    - id: vulnerability-triage
      title: 脆弱性のトリアージと期限の管理
-@@ -340,7 +344,7 @@ items:
+@@ -341,7 +345,7 @@ items:
        - workflow: rescan.yml
          job: rescan
      evidence: Alertmanagerの通知の記録と，運用の作業の記録
@@ -208,7 +232,7 @@ index fff4e58..7b92b65 100644
      actor: 自動
      runbook: runbooks/vulnerability-triage.md
      records:
-@@ -350,6 +354,7 @@ items:
+@@ -351,6 +355,7 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]
@@ -216,7 +240,7 @@ index fff4e58..7b92b65 100644
  
    - id: shared-policy
      title: 組織の共通ルールの適用
-@@ -381,3 +386,37 @@ items:
+@@ -382,3 +387,37 @@ items:
          keep_days: 400
          log: ops
          fields: [time, job, result, detail]
@@ -724,7 +748,7 @@ index 36b73ab..9473ddf 100644
 +  });
  });
 diff --git a/app/tests/gates/pinning.test.ts b/app/tests/gates/pinning.test.ts
-index 6b423cd..be37af8 100644
+index e09a195..d176f5c 100644
 --- a/app/tests/gates/pinning.test.ts
 +++ b/app/tests/gates/pinning.test.ts
 @@ -1,5 +1,5 @@
@@ -732,17 +756,18 @@ index 6b423cd..be37af8 100644
 -import { fixture, run } from "./helpers.ts";
 +import { fixture, readResult, run } from "./helpers.ts";
  
- /** fixtures/pinning/<name> のワークフローを検査する． */
+ /** fixtures/pinning/<name> のワークフローとロックファイルを検査する． */
  function pinning(name: string) {
-@@ -22,11 +22,13 @@ describe("gate:pinning", () => {
-       "lint.yml@main がハッシュで固定されていない",
+@@ -22,6 +22,7 @@ describe("gate:pinning", () => {
+       "release.yml: ロックファイルに載っていない",
      );
      expect(result.status).toBe(1);
 +    expect(readResult("pinning").problems).toHaveLength(2);
    });
  
-   it("ハッシュで固定した参照と，同じリポジトリの中の参照だけなら通る", () => {
-     const result = pinning("pinned");
+   it("別のリポジトリのreusable workflowとコンテナのイメージは，ハッシュかダイジェストで固定していなければ失敗する", () => {
+@@ -39,5 +40,6 @@ describe("gate:pinning", () => {
+     const result = pinning("locked");
      expect(result.output).toContain("all pinned");
      expect(result.status).toBe(0);
 +    expect(readResult("pinning").problems).toEqual([]);
@@ -928,10 +953,10 @@ index 3b4b12b..75dbbb0 100644
  type Report = {
    Metadata?: { OS?: { Family: string; Name: string; EOSL?: boolean } };
 diff --git a/app/tools/gates/pinning.ts b/app/tools/gates/pinning.ts
-index 2d9a26d..748eb7f 100644
+index 6e12741..2d84c69 100644
 --- a/app/tools/gates/pinning.ts
 +++ b/app/tools/gates/pinning.ts
-@@ -4,6 +4,7 @@ import { readdirSync } from "node:fs";
+@@ -6,6 +6,7 @@ import { existsSync, readdirSync } from "node:fs";
  import { join } from "node:path";
  import { parseArgs } from "node:util";
  import { readYaml } from "../ops/items.ts";
@@ -939,9 +964,9 @@ index 2d9a26d..748eb7f 100644
  
  type Workflow = {
    jobs?: Record<string, { uses?: string; steps?: { uses?: string }[] }>;
-@@ -33,6 +34,7 @@ if (import.meta.main) {
-       (ref) => `${file}: ${ref} がハッシュで固定されていない`,
-     ),
+@@ -74,6 +75,7 @@ if (import.meta.main) {
+   const problems = files.flatMap((file) =>
+     unpinned(file, readYaml(join(values.workflows, file)) as Workflow, lock),
    );
 +  writeResult("pinning", { problems, workflows: files });
    for (const problem of problems) {
